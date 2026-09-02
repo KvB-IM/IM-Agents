@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand palette, matching IM-Website so the two read as one product. */
+  --color-navy-950: #0b1a33;
+  --color-navy-900: #0f2140;
+  --color-navy-800: #14294f;
+  --color-navy-700: #1c3663;
+  --color-navy-600: #274681;
+  --color-navy-100: #dde5f2;
+  --color-navy-50: #eef2f9;
+
+  --color-gold-600: #b0863f;
+  --color-gold-500: #c6a15c;
+  --color-gold-400: #d4b578;
+  --color-gold-100: #f2e7cf;
+
+  --color-cream: #f7f8fb;
+  --color-ink: #16223a;
+  --color-muted: #5c6779;
+  --color-line: #e6e9f0;
+
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+}
+
+:root {
+  color-scheme: light;
+  /* Bottom tab bar height plus the iPhone home-indicator inset. Used to keep
+     scrollable content clear of the bar. */
+  --tabbar-h: 4.25rem;
+}
+
+html {
+  /* Stops iOS inflating text in landscape. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* No rubber-band scroll behind the fixed tab bar. */
+  overscroll-behavior-y: none;
+}
+
+/* ── Mobile input rules ────────────────────────────────────────────────────
+   iOS Safari zooms the viewport when a focused input's font-size is under
+   16px, and never zooms back out. Every control here is at least 16px for
+   that reason, not for looks. */
+input,
+select,
+textarea,
+button {
+  font-size: 16px;
+  font-family: inherit;
+}
+
+/* Tap targets. 44px is Apple's minimum and a field agent is using this
+   one-handed, standing up, on a client's porch. */
+.tap {
+  min-height: 44px;
+}
+
+input[type="date"] {
+  /* iOS renders date inputs shorter than text inputs and misaligns them. */
+  min-height: 44px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Remove the number spinners, which are unusable on touch anyway. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Kill the grey flash on tap in iOS Safari; components show their own
+   :active state instead. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@utility safe-b {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility safe-t {
+  padding-top: env(safe-area-inset-top, 0px);
+}
