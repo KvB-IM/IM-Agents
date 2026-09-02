@@ -14,8 +14,28 @@ either upstream is not live. `GET /api/health` reports exactly what is wired.
 **1. HealthSherpa** — self-serve key from <https://one.healthsherpa.com/>.
 Quoting works on the free tier. Set `HEALTHSHERPA_API_KEY`.
 
-**2. Zoho CRM** — register a Self Client at <https://api-console.zoho.com/> and
-generate a refresh token once. Scopes:
+**2. Zoho CRM** — register a **Server-based Application** at
+<https://api-console.zoho.com/>. *Not* a Self Client: Zoho permits only one per
+account, and sharing an existing one couples this app to whatever else uses it —
+rotating the secret for either would break the other, and CRM audit logs could
+not tell them apart.
+
+Authorized redirect URIs (Zoho matches these byte for byte, scheme and trailing
+slash included):
+
+```
+http://localhost:3000/api/auth/zoho/callback
+https://im-agents.vercel.app/api/auth/zoho/callback
+```
+
+Only `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` go in the environment. The
+refresh token is obtained by an **admin pressing "Connect the CRM"** on their
+profile and stored AES-256-GCM encrypted in `zoho_connection`, so reconnecting
+never needs a redeploy — which matters, because Zoho refresh tokens do get
+revoked, and the fix at 9pm during open enrollment should be a click.
+`ZOHO_REFRESH_TOKEN` still works as an override and takes precedence.
+
+Scopes requested:
 
 ```
 ZohoCRM.modules.custom.READ
@@ -26,8 +46,7 @@ ZohoCRM.settings.fields.READ
 ```
 
 Do **not** grant DELETE — nothing here deletes a CRM record and the service
-account should not be able to. Set `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`,
-`ZOHO_REFRESH_TOKEN`.
+account should not be able to.
 
 **Then add each field agent to Zoho's `Agent` global picklist**, spelled exactly
 as `agents.zoho_agent_name`. This is not optional and it fails silently:
@@ -73,6 +92,7 @@ cp .env.example .env.local
 | Submission replay buffer | Schema in `db/003`; not yet written to |
 | **Login, sessions, sign-out** | **Wired** — scrypt, revocable sessions, throttling |
 | Route protection | **Wired** — middleware + `requireAgent` at the data |
+| **Zoho OAuth connect flow** | **Wired** — admin-initiated, CSRF-protected, token encrypted |
 | Password reset, invitations, MFA | Schema ready; not built |
 | Server-side drafts | Schema in `db/002`; not yet wired |
 | ZIP → county (multi-county ZIPs handled) | Real route, fixture fallback |
@@ -264,7 +284,7 @@ account here is a key to client PII including SSNs.
 
 ```bash
 npm run migrate                      # apply db/*.sql
-npm run create-agent -- --email dana@example.com --zoho-name "Dana Ruiz"
+npm run create-agent -- --email you@example.com --zoho-name "Other" --admin
 ```
 
 The password is prompted for with echo off, never passed as an argument —
@@ -275,6 +295,11 @@ that agent's live sessions, and clears their login throttle.
 ⚠ `--zoho-name` must match the agent's entry in Zoho's `Agent` global picklist
 **exactly**, or their forms are attributed to nobody and their pipeline reads
 empty. The script says so before it writes.
+
+`--admin` grants the ability to connect the CRM and administer accounts. There
+is deliberately no way to grant yourself admin from inside the app — it
+repoints the whole portal at a Zoho org. Re-running the script to reset a
+password only ever grants the flag, never revokes it.
 
 **Sessions are server-side and revocable.** The cookie carries 32 random bytes;
 `agent_sessions` stores only a SHA-256 of it, so a leaked database yields no
@@ -302,6 +327,26 @@ limit).
 **A database outage fails closed.** `agentFromSession` catches, logs and returns
 null — the agent lands on the login screen. Treating an error as "signed in"
 would be an authentication bypass triggered by taking the database down.
+
+### Connecting the CRM
+
+`/api/auth/zoho/start` → Zoho consent → `/api/auth/zoho/callback`. Admin only,
+and the parts worth knowing:
+
+- **CSRF state is single-use and consumed atomically.** The `consumed_at is
+  null` predicate lives in the `UPDATE`, not in a preceding `SELECT` — checking
+  then updating leaves a window where a replayed callback passes twice. Without
+  this, an attacker could hand an admin a callback URL carrying a code from the
+  attacker's *own* Zoho org and repoint the entire portal at a CRM they control.
+- **`access_type=offline` and `prompt=consent`** are both required. Omit the
+  first and Zoho returns an access token with nothing to renew it; omit the
+  second and a re-authorisation of an already-approved client can come back
+  with no refresh token at all — a genuinely baffling failure.
+- **The API domain comes from the token exchange**, not from configuration. A
+  `.eu` or `.in` org hands back its own domain, and calling the wrong one fails
+  in a way that looks like a permissions problem.
+- **`invalid_client` on exchange is almost always the redirect URI** not
+  matching byte for byte.
 
 ### Where the boundary actually is
 

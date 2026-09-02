@@ -13,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Either upstream on fixtures earns the badge. Quoting a client off
           invented premiums, or reading a pipeline of invented forms, are both
           things someone has to be able to see at a glance. */}
-      <AppHeader agentName={agent.name} fixture={!hsConfigured() || !usingLiveCrm()} />
+      <AppHeader agentName={agent.name} fixture={!hsConfigured() || !(await usingLiveCrm())} />
       {/* No horizontal padding below `sm`: containers go full-bleed and inset
           their own content. See the Card comment in components/ui.tsx. */}
       <main

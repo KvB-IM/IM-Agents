@@ -91,11 +91,17 @@ async function main() {
   const agency = arg("agency") ?? "Insurance Masters";
   const regionalManager = arg("regional-manager");
   const subAgent = arg("sub-agent");
+  /* Admins may connect the CRM and administer accounts. Deliberately a flag on
+   * this script rather than anything in the UI: there is no way to grant
+   * yourself admin from inside the app, which is what you want for a
+   * capability that repoints the whole portal at a Zoho org. */
+  const isAdmin = process.argv.includes("--admin");
 
   if (!email || !zohoName) {
     console.error(
       "Usage: npm run create-agent -- --email <email> --zoho-name <name in Zoho's Agent picklist>\n" +
-        "             [--agency <agency>] [--regional-manager <name>] [--sub-agent <name>]",
+        "             [--agency <agency>] [--regional-manager <name>] [--sub-agent <name>]\n" +
+        "             [--admin]   may connect the CRM and administer accounts",
     );
     process.exit(1);
   }
@@ -108,6 +114,7 @@ async function main() {
   console.log(`\nAccount:      ${email}`);
   console.log(`Zoho agent:   ${zohoName}`);
   console.log(`Agency:       ${agency}`);
+  console.log(`Admin:        ${isAdmin ? "yes — may connect the CRM" : "no"}`);
   console.log(
     "\n⚠  The Zoho agent name must match this agent's entry in Zoho's `Agent`\n" +
       "   global picklist EXACTLY. Zoho silently drops a value that is not on the\n" +
@@ -134,9 +141,9 @@ async function main() {
   // out and there is no reset flow yet.
   const rows = await sql`
     insert into agents (email, zoho_agent_name, agency, sub_agent, regional_manager,
-                        status, password_hash)
+                        status, password_hash, is_admin)
     values (${email}, ${zohoName}, ${agency}, ${subAgent ?? null},
-            ${regionalManager ?? null}, 'active', ${passwordHash})
+            ${regionalManager ?? null}, 'active', ${passwordHash}, ${isAdmin})
     on conflict (lower(email)) do update
        set zoho_agent_name  = excluded.zoho_agent_name,
            agency           = excluded.agency,
@@ -144,12 +151,17 @@ async function main() {
            regional_manager = excluded.regional_manager,
            status           = 'active',
            password_hash    = excluded.password_hash,
+           -- Only ever grants, never revokes: re-running this to reset a
+           -- password must not silently strip someone's admin rights.
+           is_admin         = agents.is_admin or excluded.is_admin,
            updated_at       = now()
-    returning id, email, zoho_agent_name, status
+    returning id, email, zoho_agent_name, status, is_admin
   `;
 
   const agent = rows[0];
-  console.log(`\n✓ ${agent.email} is ${agent.status} (${agent.id})`);
+  console.log(
+    `\n✓ ${agent.email} is ${agent.status}${agent.is_admin ? " and an admin" : ""} (${agent.id})`,
+  );
 
   // Any existing session belongs to whoever knew the old password.
   const revoked = await sql`

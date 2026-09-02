@@ -19,21 +19,27 @@ import * as fixtureRepo from "./fixtureRepo";
  * one, in either backend.
  */
 
-/** Which backend is live, for the header badge and the health check. */
-export function usingLiveCrm(): boolean {
+/**
+ * Which backend is live, for the header badge and the health check.
+ *
+ * Async because the refresh token may be stored in the database rather than
+ * the environment — being "connected" is no longer answerable from env vars
+ * alone.
+ */
+export async function usingLiveCrm(): Promise<boolean> {
   return zohoConfigured();
 }
 
-function repo() {
-  return zohoConfigured() ? zohoRepo : fixtureRepo;
+async function repo() {
+  return (await zohoConfigured()) ? zohoRepo : fixtureRepo;
 }
 
 export async function listJots(scope: AgentScope): Promise<Jot[]> {
-  return repo().listJots(scope);
+  return (await repo()).listJots(scope);
 }
 
 export async function getJot(scope: AgentScope, id: string): Promise<Jot | null> {
-  return repo().getJot(scope, id);
+  return (await repo()).getJot(scope, id);
 }
 
 /**
@@ -50,7 +56,7 @@ export async function createJot(
   scope: AgentScope,
   record: Record<string, unknown>,
 ): Promise<Jot> {
-  return repo().createJot(scope, record);
+  return (await repo()).createJot(scope, record);
 }
 
 export async function applyCorrections(
@@ -58,7 +64,7 @@ export async function applyCorrections(
   id: string,
   written: Record<string, unknown>,
 ): Promise<Jot | null> {
-  return repo().applyCorrections(scope, id, written);
+  return (await repo()).applyCorrections(scope, id, written);
 }
 
 /* ── The correction allowlist ───────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import type { AgentIdentity } from "./jot";
-import { zohoConfigured } from "./zoho";
+
 import { dbConfigured } from "./db";
 import { agentFromSession } from "./auth";
 
@@ -36,7 +36,17 @@ import { agentFromSession } from "./auth";
 function assertSafeToServe(): void {
   if (process.env.NODE_ENV !== "production") return;
   if (dbConfigured()) return;
-  if (!zohoConfigured()) return;
+  /* With no database, the ONLY way the CRM can be live is a refresh token in
+   * the environment — a token stored in zoho_connection needs the database
+   * this branch has already established is absent. So the dangerous
+   * combination is fully described by these env vars, and this check stays
+   * synchronous rather than dragging a database round trip into every render. */
+  const liveViaEnv = Boolean(
+    process.env.ZOHO_CLIENT_ID &&
+      process.env.ZOHO_CLIENT_SECRET &&
+      process.env.ZOHO_REFRESH_TOKEN,
+  );
+  if (!liveViaEnv) return;
   if (process.env.ALLOW_STUBBED_AUTH_WITH_LIVE_CRM === "i-understand-this-is-unauthenticated") {
     return;
   }

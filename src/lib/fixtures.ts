@@ -98,6 +98,19 @@ export function fixturePlans(householdSize: number, income: number | null, total
  * and one carries a stage this app has not been taught about, because both
  * happen in the live data and both have to render rather than vanish.
  */
+/**
+ * The agent the fixtures belong to.
+ *
+ * Follows PROTOTYPE_AGENT_NAME so fixture mode shows data whatever that is set
+ * to. Hard-coding a name here meant changing the configured agent silently
+ * emptied the pipeline, which looks exactly like the real failure it is not
+ * (an agent missing from Zoho's `Agent` picklist).
+ */
+const FIXTURE_AGENT = process.env.PROTOTYPE_AGENT_NAME || "Dana Ruiz";
+
+/** A different agent, for the one record that proves the scope filter works. */
+const OTHER_AGENT = FIXTURE_AGENT === "Cassidy Marsh" ? "Rowan Pike" : "Cassidy Marsh";
+
 export const FIXTURE_JOTS: Jot[] = [
   {
     id: "9000000000000501001", formId: "ID99000000000000001", clientName: "Marisol Vega",
@@ -109,7 +122,7 @@ export const FIXTURE_JOTS: Jot[] = [
     submittedAt: "2026-08-27T15:40:00Z", requestedEffective: "2026-10-01",
     premium: 612, netPremium: 118, carrier: "Ambetter", plan: "Balanced Care 4",
     metalLevel: "Silver", householdSize: 3, policyId: "", policyName: "",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     id: "9000000000000501002", formId: "ID99000000000000002", clientName: "Terrence Boyd",
@@ -120,7 +133,7 @@ export const FIXTURE_JOTS: Jot[] = [
     submittedAt: "2026-08-30T18:05:00Z", requestedEffective: "2026-10-01",
     premium: 438, netPremium: 0, carrier: "Blue Cross Blue Shield", plan: "Bronze B07S",
     metalLevel: "Bronze", householdSize: 1, policyId: "", policyName: "",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     id: "9000000000000501003", formId: "ID99000000000000003", clientName: "Aiyana Fontaine",
@@ -132,7 +145,7 @@ export const FIXTURE_JOTS: Jot[] = [
     premium: 903, netPremium: 241, carrier: "Oscar Health", plan: "Gold Classic",
     metalLevel: "Gold", householdSize: 4,
     policyId: "9000000000000601001", policyName: "Fontaine — Oscar Gold 2026",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     id: "9000000000000501004", formId: "ID99000000000000004", clientName: "Devon Ashcroft",
@@ -143,7 +156,7 @@ export const FIXTURE_JOTS: Jot[] = [
     submittedAt: "2026-07-22T16:10:00Z", requestedEffective: "2026-09-01",
     premium: 377, netPremium: 12, carrier: "Ambetter", plan: "Essential Care 1 HSA",
     metalLevel: "Bronze", householdSize: 1, policyId: "", policyName: "",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     id: "9000000000000501005", formId: "ID99000000000000005", clientName: "Priya Raghunathan",
@@ -155,7 +168,7 @@ export const FIXTURE_JOTS: Jot[] = [
     premium: 1104, netPremium: 402, carrier: "Blue Cross Blue Shield", plan: "Gold B02S",
     metalLevel: "Gold", householdSize: 5,
     policyId: "9000000000000601002", policyName: "Raghunathan — BCBS Gold 2026",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     // Unstaged. The office has not picked it up, which is the commonest state
@@ -168,7 +181,7 @@ export const FIXTURE_JOTS: Jot[] = [
     submittedAt: "2026-09-01T19:30:00Z", requestedEffective: "2026-11-01",
     premium: 524, netPremium: 96, carrier: "Oscar Health", plan: "Silver Simple",
     metalLevel: "Silver", householdSize: 2, policyId: "", policyName: "",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     // A stage value this app has not been taught. Must render verbatim rather
@@ -181,7 +194,7 @@ export const FIXTURE_JOTS: Jot[] = [
     submittedAt: "2026-08-06T11:15:00Z", requestedEffective: "2026-10-01",
     premium: 690, netPremium: 155, carrier: "Ambetter", plan: "Balanced Care 4",
     metalLevel: "Silver", householdSize: 2, policyId: "", policyName: "",
-    submittingFieldAgent: "Dana Ruiz",
+    submittingFieldAgent: FIXTURE_AGENT,
   },
   {
     // Belongs to someone else. Present ON PURPOSE: it is what proves the scope
@@ -195,6 +208,6 @@ export const FIXTURE_JOTS: Jot[] = [
     submittedAt: "2026-08-29T10:00:00Z", requestedEffective: "2026-10-01",
     premium: 500, netPremium: 90, carrier: "Ambetter", plan: "Balanced Care 4",
     metalLevel: "Silver", householdSize: 2, policyId: "", policyName: "",
-    submittingFieldAgent: "Cassidy Marsh",
+    submittingFieldAgent: OTHER_AGENT,
   },
 ];

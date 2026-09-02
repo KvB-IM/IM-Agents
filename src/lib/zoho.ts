@@ -1,4 +1,5 @@
 import "server-only";
+import { zohoCredentials, noteZohoError, noteZohoRefresh } from "./zohoToken";
 
 /**
  * Zoho CRM client — service-account model.
@@ -14,15 +15,28 @@ import "server-only";
  */
 
 const ACCOUNTS_HOST = process.env.ZOHO_ACCOUNTS_HOST || "https://accounts.zoho.com";
-const API_HOST = process.env.ZOHO_API_HOST || "https://www.zohoapis.com";
 const API_VERSION = "v8";
 
-export function zohoConfigured(): boolean {
-  return Boolean(
-    process.env.ZOHO_CLIENT_ID &&
-      process.env.ZOHO_CLIENT_SECRET &&
-      process.env.ZOHO_REFRESH_TOKEN,
-  );
+/**
+ * Whether a usable connection exists.
+ *
+ * Async because the refresh token may live in the database rather than the
+ * environment — see lib/zohoToken.ts for why (re-authorising should be an
+ * admin clicking a button, not a redeploy).
+ */
+export async function zohoConfigured(): Promise<boolean> {
+  return (await zohoCredentials()) !== null;
+}
+
+/**
+ * The synchronous half: are the app's OWN credentials present?
+ *
+ * Enough to know whether connecting is even possible, without a database round
+ * trip. Used where a cheap answer is needed and "connected" is not the
+ * question.
+ */
+export function zohoClientConfigured(): boolean {
+  return Boolean(process.env.ZOHO_CLIENT_ID && process.env.ZOHO_CLIENT_SECRET);
 }
 
 export class ZohoError extends Error {
@@ -87,12 +101,13 @@ g.__imZohoToken ??= { token: null, expiresAt: 0, inFlight: null };
 const tokenCache = g.__imZohoToken;
 
 async function fetchAccessToken(): Promise<string> {
-  const clientId = process.env.ZOHO_CLIENT_ID;
-  const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-  const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
-
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new ZohoError(500, "Zoho is not configured on this server.");
+  const creds = await zohoCredentials();
+  if (!creds) {
+    throw new ZohoError(
+      500,
+      "The CRM is not connected. An admin can connect it from their profile, or " +
+        "ZOHO_REFRESH_TOKEN can be set in the environment.",
+    );
   }
 
   const res = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token`, {
@@ -100,9 +115,9 @@ async function fetchAccessToken(): Promise<string> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+      refresh_token: creds.refreshToken,
     }),
     cache: "no-store",
   });
@@ -116,12 +131,18 @@ async function fetchAccessToken(): Promise<string> {
   if (!res.ok || data.error || !data.access_token) {
     // The refresh token itself is what goes wrong here — revoked, wrong data
     // centre, or a scope removed — so name that without leaking the token.
+    const detail = `token refresh ${res.status}: ${data.error ?? "no access_token"}`;
+    // Recorded so a dead connection shows up in /api/health before an agent
+    // reports it. Best effort; never let bookkeeping mask the real error.
+    void noteZohoError(detail);
     throw new ZohoError(
       502,
-      "The CRM connection could not be renewed. The refresh token may have been revoked, or the data centre may be wrong.",
-      `token refresh ${res.status}: ${data.error ?? "no access_token"}`,
+      "The CRM connection could not be renewed. It may need to be reconnected — the refresh token can be revoked from Zoho's side.",
+      detail,
     );
   }
+
+  void noteZohoRefresh();
 
   // A minute of headroom, so a request never starts with a token that expires
   // mid-flight.
@@ -146,7 +167,14 @@ async function accessToken(): Promise<string> {
  *  was revoked server-side before its stated expiry. */
 async function zohoFetch(path: string, init?: RequestInit, retry = true): Promise<Response> {
   const token = await accessToken();
-  const res = await fetch(`${API_HOST}/crm/${API_VERSION}${path}`, {
+  /* Prefer the api_domain Zoho returned on the token exchange over anything
+   * configured. A .eu or .in org hands back its own domain, and calling the
+   * wrong one fails in a way that looks like a permissions problem. */
+  const creds = await zohoCredentials();
+  const apiHost =
+    creds?.apiDomain || process.env.ZOHO_API_HOST || "https://www.zohoapis.com";
+
+  const res = await fetch(`${apiHost}/crm/${API_VERSION}${path}`, {
     ...init,
     headers: {
       Authorization: `Zoho-oauthtoken ${token}`,

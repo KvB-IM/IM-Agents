@@ -6,6 +6,9 @@ import { computeKpis, STALL_DAYS } from "@/lib/kpis";
 import type { StageCount } from "@/lib/kpis";
 import { Card, CardHeader, Inset } from "@/components/ui";
 import SignOutButton from "@/components/SignOutButton";
+import ZohoConnection from "@/components/ZohoConnection";
+import { dbConfigured, sql } from "@/lib/db";
+import { zohoCredentials } from "@/lib/zohoToken";
 
 /* Rendered per request, never prerendered: these read the agent's own records,
    and a statically generated page would bake one agent's pipeline into the
@@ -24,8 +27,13 @@ export const dynamic = "force-dynamic";
  * things that are not a stage, and each one is a call to action rather than a
  * statistic.
  */
-export default async function MePage() {
+export default async function MePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ zoho?: string }>;
+}) {
   const agent = await requireAgent("/me");
+  const { zoho } = await searchParams;
   const scope = AgentScope.forAgent(agent.id, agent.name);
   const jots = await listJots(scope);
   const k = computeKpis(jots);
@@ -137,6 +145,10 @@ export default async function MePage() {
         </ul>
       </Card>
 
+      {/* Admin-only. Connecting the CRM points the whole portal at one Zoho
+          org, so it is not a field-agent capability. */}
+      {await adminPanel(agent.id, zoho)}
+
       <Inset>
         <SignOutButton />
       </Inset>
@@ -182,4 +194,56 @@ function StageBar({ stage, total }: { stage: StageCount; total: number }) {
       <p className="mt-1 text-[11px] leading-snug text-muted">{stage.meaning}</p>
     </li>
   );
+}
+
+
+/**
+ * The CRM connection panel, rendered only for admins.
+ *
+ * Returns null for everyone else — including when there is no database, where
+ * there are no roles to check and the connection is managed by environment
+ * variable anyway.
+ */
+async function adminPanel(agentId: string, zoho: string | undefined) {
+  if (!dbConfigured()) return null;
+
+  try {
+    const db = sql();
+    const rows = (await db`
+      select is_admin from agents where id = ${agentId} limit 1
+    `) as Array<{ is_admin: boolean }>;
+    if (!rows[0]?.is_admin) return null;
+
+    const conn = (await db`
+      select scopes, connected_at, last_error, last_error_at
+        from zoho_connection where id = true limit 1
+    `) as Array<{
+      scopes: string | null;
+      connected_at: string | null;
+      last_error: string | null;
+      last_error_at: string | null;
+    }>;
+
+    const creds = await zohoCredentials();
+    const row = conn[0];
+
+    return (
+      <ZohoConnection
+        connected={Boolean(creds)}
+        source={creds?.source ?? null}
+        connectedAt={
+          row?.connected_at ? new Date(row.connected_at).toLocaleString("en-US") : null
+        }
+        scopes={row?.scopes ?? null}
+        lastError={row?.last_error ?? null}
+        status={zoho === "connected" ? "connected" : zoho === "error" ? "error" : null}
+      />
+    );
+  } catch (err) {
+    // A profile page must render even if this query fails — the panel is
+    // administrative, and an agent looking at their own production numbers
+    // should not get an error page because a schema migration has not run.
+    console.error("[me] admin panel unavailable:", err);
+    return null;
+  }
 }
