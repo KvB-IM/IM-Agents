@@ -5,6 +5,8 @@ import { draftToJot } from "@/lib/jot";
 import { createJot, listJots } from "@/lib/store";
 import { isUpstreamError } from "@/lib/zoho";
 import { ssnConfirmed, ssnDigits, ssnProblem } from "@/lib/ssn";
+import { recordAttempt, settleAttempt } from "@/lib/submissions";
+import { clientIpFrom } from "@/lib/auth";
 import type { CaptureDraft } from "@/lib/types";
 
 /** GET /api/enrollments → this agent's own Jots. */
@@ -112,19 +114,63 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ dryRun: true, module: "JOTS", payload });
   }
 
+  /* ── Replay buffer ────────────────────────────────────────────────────────
+   * Written BEFORE the CRM call, so a Zoho rejection leaves a reconcilable row
+   * rather than nothing. Two rejections found in development would each have
+   * destroyed a finished application in the field, which is what this is for.
+   *
+   * Non-fatal on purpose: if the buffer write fails the submission still goes
+   * ahead. The buffer exists to catch Zoho failures, and letting a database
+   * outage block every field submission would be the worse failure. SSNs are
+   * reduced to last-four inside recordAttempt. */
+  const formId = String(payload.Name ?? "");
+  const buffered = await recordAttempt(
+    {
+      agentId: agent.id,
+      formId,
+      clientName: [primary.firstName, primary.lastName].filter(Boolean).join(" "),
+      requestedEffective: draft.requestedEffective,
+      carrier: String(payload.Carrier1 ?? ""),
+      clientIp: clientIpFrom(request.headers),
+      userAgent: request.headers.get("user-agent"),
+    },
+    payload,
+  );
+
   try {
     const jot = await createJot(scope, payload);
+    /* Settled as success whether this was a fresh create or a replay that
+     * resolved to the record already filed — either way the application is in
+     * the CRM and is not what reconciliation is looking for. */
+    if (buffered) await settleAttempt(formId, "success", { zohoId: jot.id });
     return NextResponse.json({ jot }, { status: 201 });
   } catch (err) {
     if (isUpstreamError(err)) {
       // The detail is logged; the agent sees only the sentence written for a
       // person, which for a rejected field names the field.
       console.error("[enrollments] create failed:", err.message);
-      return NextResponse.json({ error: err.userMessage }, { status: err.status });
+      if (buffered) await settleAttempt(formId, "rejected", { error: err.message });
+      /* Tell the agent it was saved. This is the COMMON failure path — a Zoho
+       * rejection arrives as an upstream error — and it previously returned
+       * Zoho's message alone, so an agent whose form WAS safely buffered had
+       * no way to know and would re-enter the whole application. */
+      return NextResponse.json(
+        {
+          error: buffered
+            ? `${err.userMessage} It has been saved here for the office to retry — do not re-enter it.`
+            : err.userMessage,
+        },
+        { status: err.status },
+      );
     }
     console.error("[enrollments] create failed:", err);
+    if (buffered) await settleAttempt(formId, "error", { error: String(err) });
     return NextResponse.json(
-      { error: "The form could not be filed. Nothing was saved — try again." },
+      {
+        error: buffered
+          ? "The form could not be filed with the CRM. It has been saved here and the office can retry it — do not re-enter it."
+          : "The form could not be filed. Nothing was saved — try again.",
+      },
       { status: 502 },
     );
   }
