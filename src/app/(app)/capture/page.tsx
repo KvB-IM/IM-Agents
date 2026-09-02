@@ -3,11 +3,12 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, Send, ChevronLeft, ChevronRight, Lock, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Send, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
 import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Badge, Empty, Inset } from "@/components/ui";
 import { money, monthYear } from "@/lib/format";
+import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
 import type { Jot } from "@/lib/types";
 
 /**
@@ -37,6 +38,30 @@ export default function CapturePage() {
   const submissionKey = useMemo(() => `${draft.id}-submit`, [draft.id]);
 
   const primary = draft.people.find((p) => p.relation === "primary") ?? draft.people[0];
+
+  /**
+   * Why step 1 cannot be left yet, or null.
+   *
+   * SSN is required for everyone seeking coverage and must match its
+   * confirmation. Blocking here rather than at submit is the point: an agent
+   * who discovers a mismatch on the review screen has to navigate back through
+   * five steps to a masked field with no idea which digit was wrong.
+   */
+  const applicantBlocker = (() => {
+    const covered = draft.people.filter((p) => p.seekingCoverage);
+    for (const person of covered) {
+      const who =
+        [person.firstName, person.lastName].filter(Boolean).join(" ") ||
+        (person.relation === "primary" ? "the applicant" : "a household member");
+      if (ssnDigits(person.ssn).length === 0) return `${who} needs an SSN.`;
+      if (!ssnConfirmed(person.ssn, person.ssnConfirm)) {
+        return `${who}'s SSN entries do not match.`;
+      }
+    }
+    return null;
+  })();
+
+  const blocker = step === 0 ? applicantBlocker : null;
 
   async function submit() {
     setError(null);
@@ -153,7 +178,7 @@ export default function CapturePage() {
         <Card>
           <CardHeader
             title="Applicant and household members"
-            hint="SSNs are collected here and never displayed again."
+            hint="Each SSN is entered twice. Digits hide as you type."
           />
           <div>
             {draft.people.map((person) => (
@@ -166,11 +191,6 @@ export default function CapturePage() {
               />
             ))}
           </div>
-          <p className="flex items-start gap-2 border-t border-line px-4 py-3 text-[12px] leading-snug text-muted">
-            <Lock size={14} className="mt-0.5 shrink-0" aria-hidden />
-            SSNs are write-only from the field. Once submitted, neither this app nor you can read
-            them back — a correction means re-collecting the number.
-          </p>
         </Card>
       ) : null}
 
@@ -461,6 +481,13 @@ export default function CapturePage() {
       ) : null}
 
       {/* ── Step nav ───────────────────────────────────────────────────── */}
+      {blocker ? (
+        <p className="flex items-start gap-2 px-4 text-[13px] text-warning">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden />
+          {blocker}
+        </p>
+      ) : null}
+
       <div className="sticky bottom-0 flex gap-2 border-t border-line bg-cream/95 px-4 pt-3 pb-3 backdrop-blur">
         <Button
           variant="secondary"
@@ -472,7 +499,7 @@ export default function CapturePage() {
         </Button>
         <Button
           onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-          disabled={step === STEPS.length - 1}
+          disabled={step === STEPS.length - 1 || blocker !== null}
           className="!w-auto flex-[2]"
         >
           Next <ChevronRight size={17} aria-hidden />

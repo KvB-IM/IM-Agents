@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import type { Person } from "@/lib/types";
 import { ageAt } from "@/lib/age";
 import { Field, TextInput, Select, Toggle, Badge } from "./ui";
+import SsnInput from "./SsnInput";
 
 const RELATION_LABEL: Record<Person["relation"], string> = {
   primary: "Primary applicant",
@@ -112,20 +113,19 @@ export default function PersonEditor({
         </Field>
       </div>
 
-      {showSsn ? (
+      {/* Required for anyone seeking coverage — the exchange will not process
+          an applicant without one. Someone on the form for tax-household
+          purposes only does not need it, so the requirement follows coverage
+          rather than being blanket. */}
+      {showSsn && person.seekingCoverage ? (
         <div className="mt-3">
-          <Field
+          <SsnInput
             label="SSN"
-            hint="Submitted, never shown again. Re-collect it if a correction is needed."
-          >
-            <TextInput
-              value={person.ssn}
-              onChange={(e) => onChange({ ssn: e.target.value })}
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="000-00-0000"
-            />
-          </Field>
+            value={person.ssn}
+            confirmValue={person.ssnConfirm}
+            onChange={(ssn) => onChange({ ssn })}
+            onConfirmChange={(ssnConfirm) => onChange({ ssnConfirm })}
+          />
         </div>
       ) : null}
     </div>

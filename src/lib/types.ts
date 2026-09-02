@@ -14,8 +14,12 @@ export interface Person {
   dateOfBirth: string;
   sex: "" | "Male" | "Female";
   tobacco: boolean;
-  /** Write-only from the field: submitted, never read back (scope section 7.2). */
+  /** Raw digits, no dashes — the dashed form is presentation and is applied on
+   *  submit. Write-only from the field: submitted, never read back. */
   ssn: string;
+  /** Second entry, compared on the digits. Never leaves the browser: it exists
+   *  to catch a typo, and sending it would just be a second copy of an SSN. */
+  ssnConfirm: string;
   seekingCoverage: boolean;
 }
 

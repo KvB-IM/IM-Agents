@@ -4,6 +4,7 @@ import { AgentScope } from "@/lib/scope";
 import { draftToJot } from "@/lib/jot";
 import { createJot, listJots } from "@/lib/store";
 import { isUpstreamError } from "@/lib/zoho";
+import { ssnConfirmed, ssnDigits, ssnProblem } from "@/lib/ssn";
 import type { CaptureDraft } from "@/lib/types";
 
 /** GET /api/enrollments → this agent's own Jots. */
@@ -66,6 +67,26 @@ export async function POST(request: NextRequest) {
   }
   if (!draft.requestedEffective) {
     return NextResponse.json({ error: "A requested effective date is required." }, { status: 400 });
+  }
+
+  /* SSN is required for everyone seeking coverage, and must match its
+   * confirmation. The stepper blocks this client-side, but the check belongs
+   * here too — the browser is not the boundary, and a form filed with a
+   * mistyped SSN bounces at the exchange and costs the client their coverage
+   * date. */
+  for (const person of draft.people ?? []) {
+    if (!person.seekingCoverage) continue;
+    const who = [person.firstName, person.lastName].filter(Boolean).join(" ") || "an applicant";
+    const problem = ssnProblem(ssnDigits(person.ssn ?? ""));
+    if (problem) {
+      return NextResponse.json({ error: `${who}: ${problem}` }, { status: 400 });
+    }
+    if (!ssnConfirmed(person.ssn ?? "", person.ssnConfirm ?? "")) {
+      return NextResponse.json(
+        { error: `${who}: the two SSN entries do not match.` },
+        { status: 400 },
+      );
+    }
   }
 
   // The allowlist and the server-side attribution both live in draftToJot.

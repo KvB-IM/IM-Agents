@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { formatSsn } from "./ssn";
 import type { CaptureDraft, Person } from "./types";
 import { ageAt } from "./age";
 
@@ -218,7 +219,10 @@ export function draftToJot(
     Last_Name: primary?.lastName ?? "",
     DoB: primary?.dateOfBirth ?? "",
     Gender: primary?.sex ?? "",
-    SSN: primary?.ssn ?? "",
+    // Dashed on the way out: existing JOTS records are stored XXX-XX-XXXX, and
+    // the draft holds raw digits. formatSsn returns "" on anything incomplete,
+    // which the allowlist gate then drops rather than writing a partial number.
+    SSN: formatSsn(primary?.ssn ?? ""),
 
     Home_Street: draft.street,
     Home_City: draft.city,
@@ -289,7 +293,7 @@ export function draftToJot(
         DoB: p.dateOfBirth,
         Gender: p.sex,
         Coverage: p.seekingCoverage ? "Covered" : "Not Covered",
-        SSN: p.ssn,
+        SSN: formatSsn(p.ssn),
       };
       return Object.fromEntries(
         Object.entries(row).filter(([k, v]) => k in DEPENDENT_WRITABLE && v !== "" && v !== null),

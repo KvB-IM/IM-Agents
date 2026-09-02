@@ -25,6 +25,7 @@ export function emptyPerson(relation: Person["relation"]): Person {
     sex: "",
     tobacco: false,
     ssn: "",
+    ssnConfirm: "",
     seekingCoverage: true,
   };
 }
@@ -82,7 +83,25 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(KEY);
-      if (raw) setDraft({ ...emptyDraft(), ...(JSON.parse(raw) as CaptureDraft) });
+      if (raw) {
+        const saved = JSON.parse(raw) as CaptureDraft;
+        /* Merge defaults at BOTH levels. Spreading only at the draft level left
+         * people objects exactly as they were saved, so a field added to
+         * Person after a draft was stored came back undefined — `ssnConfirm`
+         * did exactly that. Every future field has the same problem, so the
+         * fix belongs here rather than in a one-off migration. */
+        const base = emptyDraft();
+        setDraft({
+          ...base,
+          ...saved,
+          people: (saved.people ?? []).map((person) => ({
+            ...emptyPerson(person.relation ?? "primary"),
+            ...person,
+            // Keep the saved key so React identity and the SSN inputs survive.
+            key: person.key ?? Math.random().toString(36).slice(2, 10),
+          })),
+        });
+      }
     } catch {
       /* corrupt or unavailable storage: start clean rather than fail */
     }
