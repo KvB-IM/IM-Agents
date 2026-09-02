@@ -7,6 +7,7 @@ import type { StageCount } from "@/lib/kpis";
 import { Card, CardHeader, Inset } from "@/components/ui";
 import SignOutButton from "@/components/SignOutButton";
 import ZohoConnection from "@/components/ZohoConnection";
+import AgentAdmin from "@/components/AgentAdmin";
 import { dbConfigured, sql } from "@/lib/db";
 import { zohoCredentials } from "@/lib/zohoToken";
 
@@ -228,15 +229,18 @@ async function adminPanel(agentId: string, zoho: string | undefined) {
     const row = conn[0];
 
     return (
-      <ZohoConnection
-        connected={Boolean(creds)}
-        connectedAt={
-          row?.connected_at ? new Date(row.connected_at).toLocaleString("en-US") : null
-        }
-        scopes={row?.scopes ?? null}
-        lastError={row?.last_error ?? null}
-        status={zoho === "connected" ? "connected" : zoho === "error" ? "error" : null}
-      />
+      <div className="space-y-4">
+        <AgentAdmin />
+        <ZohoConnection
+          connected={Boolean(creds)}
+          connectedAt={
+            row?.connected_at ? new Date(row.connected_at).toLocaleString("en-US") : null
+          }
+          scopes={row?.scopes ?? null}
+          lastError={row?.last_error ?? null}
+          status={zoho === "connected" ? "connected" : zoho === "error" ? "error" : null}
+        />
+      </div>
     );
   } catch (err) {
     // A profile page must render even if this query fails — the panel is
