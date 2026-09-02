@@ -10,6 +10,7 @@ import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Badge, Empt
 import { money, monthYear } from "@/lib/format";
 import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
 import { effectiveHouseholdSize } from "@/lib/household";
+import LicenseCapture from "@/components/LicenseCapture";
 import * as PL from "@/lib/picklists";
 import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
 import type { Jot } from "@/lib/types";
@@ -35,6 +36,9 @@ export default function CapturePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<Jot | null>(null);
+  /* Separate from `error`: the form succeeded and the photo did not, which is a
+   * different message and must not read as a failed submission. */
+  const [photoWarning, setPhotoWarning] = useState<string | null>(null);
 
   /* Generated once per draft, so a double-tap or a retry on a dropped
      connection resolves to the same Jot instead of filing two. */
@@ -83,6 +87,32 @@ export default function CapturePage() {
         return;
       }
       setSubmitted(data.jot);
+
+      /* Attach the photo AFTER the Jot exists — an attachment needs a record
+       * id. Deliberately not fatal to the submission: the application is
+       * already filed, and telling an agent their whole form failed because a
+       * photo did not attach would send them back through six steps for
+       * nothing. The office can see a Jot with no ID and ask. */
+      if (data.jot && draft.photoId) {
+        try {
+          const att = await fetch(`/api/enrollments/${data.jot.id}/attachments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: draft.photoId.url,
+              filename: draft.photoId.filename,
+            }),
+          });
+          if (!att.ok) {
+            const detail = (await att.json()) as { error?: string };
+            setPhotoWarning(detail.error ?? "The photo did not attach to the CRM.");
+          }
+        } catch {
+          setPhotoWarning(
+            "The form was filed, but the photo did not attach. It is still saved — tell the office.",
+          );
+        }
+      }
     } catch {
       setError("No connection. The application is saved — try again when you have signal.");
     } finally {
@@ -106,6 +136,13 @@ export default function CapturePage() {
             here as they work it.
           </p>
         </div>
+
+        {photoWarning ? (
+          <p className="mx-4 flex items-start gap-2 rounded-xl bg-warning/5 px-3 py-2.5 text-[13px] leading-snug text-navy-900 ring-1 ring-warning/25">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+            {photoWarning}
+          </p>
+        ) : null}
         <Inset className="space-y-2">
           <Button onClick={() => router.push(`/pipeline/${submitted.id}`)}>
             View in pipeline
@@ -622,6 +659,11 @@ export default function CapturePage() {
       {/* ── Step 5: Review and submit ──────────────────────────────────── */}
       {step === 5 ? (
         <div className="space-y-4">
+          <LicenseCapture
+            document={draft.photoId}
+            onChange={(photoId) => patch({ photoId })}
+          />
+
           <Card>
             <CardHeader title="Review" hint="What the office will receive." />
             <dl className="divide-y divide-line px-4 pb-2">

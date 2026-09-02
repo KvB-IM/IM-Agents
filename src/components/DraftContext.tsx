@@ -17,7 +17,7 @@ const KEY = "im-agent-draft-v1";
 
 export function emptyPerson(relation: Person["relation"]): Person {
   return {
-    key: Math.random().toString(36).slice(2, 10),
+    key: crypto.randomUUID(),
     relation,
     firstName: "",
     lastName: "",
@@ -34,7 +34,13 @@ export function emptyPerson(relation: Person["relation"]): Person {
 
 export function emptyDraft(): CaptureDraft {
   return {
-    id: Math.random().toString(36).slice(2, 12),
+    /* crypto.randomUUID, not Math.random. The draft id becomes the submission
+     * key, which is hashed into the Jot's unique Form ID — so two drafts
+     * sharing an id would produce the same Form ID, and the second submission
+     * would be resolved as a "replay" of the first and silently return the
+     * wrong client's record. 51 bits from a non-cryptographic PRNG is not the
+     * place to economise on that. */
+    id: crypto.randomUUID(),
     updatedAt: new Date().toISOString(),
     zip: "",
     county: null,
@@ -81,6 +87,7 @@ export function emptyDraft(): CaptureDraft {
     qualifyingEventDate: "",
     requestedEffective: defaultEffectiveDate(),
     selectedPlan: null,
+    photoId: null,
   };
 }
 
@@ -120,7 +127,7 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
             ...emptyPerson(person.relation ?? "primary"),
             ...person,
             // Keep the saved key so React identity and the SSN inputs survive.
-            key: person.key ?? Math.random().toString(36).slice(2, 10),
+            key: person.key ?? crypto.randomUUID(),
           })),
         });
       }

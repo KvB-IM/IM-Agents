@@ -162,6 +162,18 @@ async function accessToken(): Promise<string> {
   return tokenCache.inFlight;
 }
 
+/**
+ * The current access token, for callers that must build their own request.
+ *
+ * Attachment uploads are multipart, so they cannot go through `zohoFetch` —
+ * that sets a JSON Content-Type, which loses the multipart boundary. This
+ * shares the token cache instead of refreshing separately, which matters: two
+ * refresh paths would double the calls against Zoho's hard refresh limit.
+ */
+export async function accessTokenForAttachments(): Promise<string> {
+  return accessToken();
+}
+
 /** Authenticated CRM request. Retries once on a 401, in case the cached token
  *  was revoked server-side before its stated expiry. */
 async function zohoFetch(path: string, init?: RequestInit, retry = true): Promise<Response> {

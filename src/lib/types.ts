@@ -119,6 +119,15 @@ export interface CaptureDraft {
   // Plan
   requestedEffective: string;
   selectedPlan: SelectedPlan | null;
+
+  /**
+   * The applicant's photo ID, already uploaded to staging.
+   *
+   * Uploaded when taken rather than at submit, so a connectivity failure
+   * surfaces while the agent is still with the client. Attached to the Jot
+   * after the record exists — an attachment needs a record id.
+   */
+  photoId: { url: string; filename: string; bytes: number } | null;
 }
 
 export interface SelectedPlan {
