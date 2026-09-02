@@ -13,34 +13,21 @@
  * where every other user on the machine can read it.
  */
 
-import { createInterface } from "node:readline";
-import { randomBytes, scrypt as scryptCb } from "node:crypto";
-import { promisify } from "node:util";
 import { neon } from "@neondatabase/serverless";
 import { readFileSync } from "node:fs";
 
-const scrypt = promisify(scryptCb);
-
-/* Mirrors src/lib/password.ts. Duplicated deliberately: this is a plain .mjs
- * script so it runs with no build step, and importing a TypeScript module that
- * pulls in `server-only` would not load here. If the parameters below change,
- * change them in both places — the format is self-describing, so old hashes
- * keep verifying either way. */
-const N = 1 << 15;
-const R = 8;
-const P = 1;
-const MAXMEM = 128 * N * R * 2;
-
-async function hashPassword(password) {
-  const salt = randomBytes(16);
-  const derived = await scrypt(password.normalize("NFKC"), salt, 32, {
-    N,
-    r: R,
-    p: P,
-    maxmem: MAXMEM,
-  });
-  return ["scrypt", N, R, P, salt.toString("base64url"), derived.toString("base64url")].join("$");
-}
+/* Imported, NOT reimplemented.
+ *
+ * This used to carry its own copy of the scrypt parameters and only checked
+ * that a password was 12 characters. The app's policy rejects more than that —
+ * "Password1234" among them — so the one place accounts are actually created
+ * was the one place the policy did not apply. Duplication caused that, so the
+ * duplication is gone.
+ *
+ * Works because src/lib/password.ts is deliberately import-free (no
+ * `server-only`, no project imports) and Node strips its types. The same
+ * requirement `npm test` already has. */
+import { hashPassword, checkPasswordPolicy } from "../src/lib/password.ts";
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -64,22 +51,90 @@ function loadEnvLocal() {
   }
 }
 
+/**
+ * Read a secret without echoing it.
+ *
+ * Raw mode, one character at a time. The previous implementation layered a
+ * readline interface over stdin and tried to redraw over what it had already
+ * printed — which does not work, because readline echoes a character before
+ * any 'data' handler runs. The password appeared in the terminal in plaintext
+ * and then stayed in the scrollback. In raw mode nothing is echoed unless we
+ * echo it, so asterisks are the only thing that ever reaches the screen.
+ *
+ * Falls back to a plain line read when stdin is not a TTY, so piping still
+ * works (tests, CI) where there is no terminal to echo to.
+ */
+const KEY_ENTER = ["\r", "\n"];
+const KEY_EOT = "\u0004"; // Ctrl-D
+const KEY_INTERRUPT = "\u0003"; // Ctrl-C
+const KEY_BACKSPACE = ["\u007f", "\b"];
+
 function promptHidden(question) {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // Suppress echo by swallowing the output writes while the answer is typed.
-    const onData = (char) => {
-      if (char === "\n" || char === "\r" || char === "") return;
-      rl.output.write("[2K[200D" + question + "*".repeat(rl.line.length));
-    };
-    rl.output.write(question);
-    rl.input.on("data", onData);
-    rl.question("", (answer) => {
-      rl.input.off("data", onData);
-      rl.output.write("\n");
-      rl.close();
-      resolve(answer);
+  const { stdin, stdout } = process;
+
+  if (!stdin.isTTY) {
+    return new Promise((resolve) => {
+      let buffer = "";
+      stdin.setEncoding("utf8");
+      const onData = (chunk) => {
+        buffer += chunk;
+        const newline = buffer.indexOf("\n");
+        if (newline !== -1) {
+          stdin.off("data", onData);
+          resolve(buffer.slice(0, newline));
+        }
+      };
+      stdin.on("data", onData);
     });
+  }
+
+  return new Promise((resolve) => {
+    stdout.write(question);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+
+    let value = "";
+
+    const finish = (result) => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.off("data", onData);
+      stdout.write("\n");
+      resolve(result);
+    };
+
+    const onData = (chunk) => {
+      // A paste arrives as a single chunk, so iterate rather than assuming one
+      // keystroke per event.
+      for (const ch of chunk) {
+        if (KEY_ENTER.includes(ch) || ch === KEY_EOT) {
+          finish(value);
+          return;
+        }
+        if (ch === KEY_INTERRUPT) {
+          // Restore the terminal before leaving, or the shell is left in raw
+          // mode with echo off and the user has to blind-type `reset`.
+          stdin.setRawMode(false);
+          stdout.write("\n");
+          process.exit(130);
+        }
+        if (KEY_BACKSPACE.includes(ch)) {
+          if (value.length > 0) {
+            value = value.slice(0, -1);
+            stdout.write("\b \b");
+          }
+          continue;
+        }
+        // Drop remaining control characters, including the escape sequences
+        // arrow keys emit — otherwise those land inside the password.
+        if (ch < " ") continue;
+        value += ch;
+        stdout.write("*");
+      }
+    };
+
+    stdin.on("data", onData);
   });
 }
 
@@ -139,8 +194,13 @@ async function main() {
   );
 
   const password = await promptHidden("Password (min 12 chars): ");
-  if (password.length < 12) {
-    console.error("\nToo short — at least 12 characters.");
+  const rejection = checkPasswordPolicy(password);
+  if (rejection) {
+    console.error(`\n${rejection}`);
+    console.error(
+      "This account can read client PII including SSNs. A passphrase of a few\n" +
+        "unrelated words beats a short password with a digit on the end.",
+    );
     process.exit(1);
   }
   const again = await promptHidden("Again: ");
