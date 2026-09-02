@@ -9,6 +9,8 @@ import PersonEditor from "@/components/PersonEditor";
 import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Badge, Empty, Inset } from "@/components/ui";
 import { money, monthYear } from "@/lib/format";
 import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
+import * as PL from "@/lib/picklists";
+import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
 import type { Jot } from "@/lib/types";
 
 /**
@@ -283,6 +285,58 @@ export default function CapturePage() {
                 onChange={(v) => patch({ usCitizen: v ? "Yes" : "No" })}
               />
             </Field>
+
+            {/* Only asked of a citizen — it is the follow-up the application
+                itself shows conditionally. */}
+            {draft.usCitizen === "Yes" ? (
+              <Field label="Naturalized or derived citizen">
+                <Toggle
+                  value={
+                    draft.naturalizedOrDerived === ""
+                      ? null
+                      : draft.naturalizedOrDerived === "Yes"
+                  }
+                  onChange={(v) => patch({ naturalizedOrDerived: v ? "Yes" : "No" })}
+                />
+              </Field>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+
+      {/* ── Step 3, continued: eligibility ─────────────────────────────── */}
+      {step === 2 ? (
+        <Card>
+          <CardHeader
+            title="Eligibility questions"
+            hint="The exchange asks all of these. The office chases whatever is left blank."
+          />
+          <div className="space-y-4 px-4 pb-4">
+            <PickField
+              label="Pregnant"
+              choices={PL.PREGNANT}
+              value={draft.pregnant}
+              onChange={(pregnant) => patch({ pregnant })}
+            />
+            <PickField
+              label="Currently incarcerated"
+              choices={PL.INCARCERATED}
+              value={draft.incarcerated}
+              onChange={(incarcerated) => patch({ incarcerated })}
+            />
+            <PickField
+              label="American Indian or Alaska Native"
+              choices={PL.AMERICAN_INDIAN_AK_NATIVE}
+              value={draft.americanIndianAkNative}
+              onChange={(americanIndianAkNative) => patch({ americanIndianAkNative })}
+              hint="Changes cost-sharing and enrollment windows, so it is worth asking."
+            />
+            <PickField
+              label="Denied Medicaid or CHIP in the last 90 days"
+              choices={PL.MEDICAID_CHIP_DENIED_90D}
+              value={draft.medicaidChipDenied90d}
+              onChange={(medicaidChipDenied90d) => patch({ medicaidChipDenied90d })}
+            />
           </div>
         </Card>
       ) : null}
@@ -363,20 +417,16 @@ export default function CapturePage() {
             </Field>
             {draft.existingCoverage === "Yes" ? (
               <>
-                <Field label="Type of coverage">
-                  <Select
-                    value={draft.typeOfExistingCoverage}
-                    onChange={(e) => patch({ typeOfExistingCoverage: e.target.value })}
-                  >
-                    <option value="">Select…</option>
-                    <option value="Employer">Employer</option>
-                    <option value="Marketplace">Marketplace</option>
-                    <option value="Medicaid">Medicaid</option>
-                    <option value="Medicare">Medicare</option>
-                    <option value="COBRA">COBRA</option>
-                    <option value="Other">Other</option>
-                  </Select>
-                </Field>
+                {/* Options come from PL, not typed here: the previous list
+                    offered Employer / Marketplace / COBRA / Other, none of
+                    which are on Zoho's picklist, so every one of them was
+                    silently dropped on save. */}
+                <PickField
+                  label="Type of coverage"
+                  choices={PL.TYPE_OF_EXISTING_COVERAGE}
+                  value={draft.typeOfExistingCoverage}
+                  onChange={(typeOfExistingCoverage) => patch({ typeOfExistingCoverage })}
+                />
                 <Field label="Coverage loss date" hint="Leave blank if it is not ending.">
                   <TextInput
                     type="date"
@@ -387,31 +437,34 @@ export default function CapturePage() {
               </>
             ) : null}
 
-            <Field label="Enrollment type">
-              <Select
-                value={draft.enrollmentType}
-                onChange={(e) => patch({ enrollmentType: e.target.value })}
-              >
-                <option value="">Select…</option>
-                <option value="Open Enrollment">Open Enrollment</option>
-                <option value="Special Enrollment">Special Enrollment</option>
-              </Select>
-            </Field>
+            <PickField
+              label="Enrollment type"
+              choices={PL.ENROLLMENT_TYPE}
+              value={draft.enrollmentType}
+              onChange={(enrollmentType) => patch({ enrollmentType })}
+              hint="Open Enrollment unless a qualifying event applies."
+            />
 
             {draft.enrollmentType === "Special Enrollment" ? (
               <>
+                {/* All 28 of HealthSherpa's event types, grouped — a flat list
+                    that long is unusable on a phone. Picking the specific
+                    event saves the office working it out from a note. */}
                 <Field label="Qualifying event">
                   <Select
                     value={draft.enrollmentEvent}
                     onChange={(e) => patch({ enrollmentEvent: e.target.value })}
                   >
                     <option value="">Select…</option>
-                    <option value="Loss of Coverage">Loss of coverage</option>
-                    <option value="Marriage">Marriage</option>
-                    <option value="Birth">Birth or adoption</option>
-                    <option value="Move">Permanent move</option>
-                    <option value="Income Change">Income change</option>
-                    <option value="Other">Other</option>
+                    {ENROLLMENT_EVENT_GROUPS.map((group) => (
+                      <optgroup key={group.title} label={group.title}>
+                        {group.events.map((ev) => (
+                          <option key={ev.hs} value={ev.label}>
+                            {ev.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </Select>
                 </Field>
                 <Field label="Event date">
@@ -421,8 +474,39 @@ export default function CapturePage() {
                     onChange={(e) => patch({ qualifyingEventDate: e.target.value })}
                   />
                 </Field>
+
+                {/* Advisory, not blocking: the 60-day window has exceptions,
+                    and a form the office can chase beats one the agent could
+                    not submit. */}
+                {outsideSixtyDayWindow(draft.enrollmentEvent, draft.qualifyingEventDate) ? (
+                  <p className="flex items-start gap-2 rounded-xl bg-warning/5 px-3 py-2.5 text-[12px] leading-snug text-navy-900 ring-1 ring-warning/20">
+                    <AlertCircle size={15} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+                    That is more than 60 days ago. Most qualifying events have a 60-day window —
+                    the office will need to check this one.
+                  </p>
+                ) : null}
               </>
             ) : null}
+
+            <PickField
+              label="Offered coverage through a job"
+              choices={PL.EMPLOYER_COVERAGE_OFFER}
+              value={draft.employerCoverageOffer}
+              onChange={(employerCoverageOffer) => patch({ employerCoverageOffer })}
+            />
+            <PickField
+              label="ICHRA"
+              choices={PL.ICHRA_STATUS}
+              value={draft.ichraStatus}
+              onChange={(ichraStatus) => patch({ ichraStatus })}
+            />
+            <PickField
+              label="Filed Form 8962 to reconcile past tax credits"
+              choices={PL.FORM_8962_FILED}
+              value={draft.form8962Filed}
+              onChange={(form8962Filed) => patch({ form8962Filed })}
+              hint="Only matters if they got a premium tax credit before."
+            />
           </div>
         </Card>
       ) : null}
@@ -508,5 +592,39 @@ export default function CapturePage() {
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * A select built from a pinned Zoho picklist.
+ *
+ * Options always come from lib/picklists.ts rather than being typed inline —
+ * typing them inline is exactly how three fields ended up offering values Zoho
+ * silently discarded on save.
+ */
+function PickField({
+  label,
+  choices,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  choices: PL.Choice[];
+  value: string;
+  onChange: (v: string) => void;
+  hint?: string;
+}) {
+  return (
+    <Field label={label} hint={hint}>
+      <Select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Select…</option>
+        {choices.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </Select>
+    </Field>
   );
 }

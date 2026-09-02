@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { formatSsn } from "./ssn";
+import * as PL from "./picklists";
 import type { CaptureDraft, Person } from "./types";
 import { ageAt } from "./age";
 
@@ -116,6 +117,13 @@ export const CAPTURE_WRITABLE = {
   US_Citizen: "picklist",
   Naturized_or_Derived: "picklist",
   Fulltime_Student: "picklist",
+  Incarcerated: "picklist",
+  American_Indian_AK_Nat: "picklist",
+  Pregnant: "picklist",
+  Medicaid_CHIP_Denied_90d: "picklist",
+  Employer_Coverage_Offer: "picklist",
+  ICHRA_Status: "picklist",
+  Form_8962_Filed: "picklist",
   // HS step 7 — income
   Household_Income: "number",
   Employment_Income: "number",
@@ -221,7 +229,7 @@ export function draftToJot(
     First_Name: primary?.firstName ?? "",
     Last_Name: primary?.lastName ?? "",
     DoB: primary?.dateOfBirth ?? "",
-    Gender: primary?.sex ?? "",
+    Gender: PL.pinned(PL.GENDER, primary?.sex ?? ""),
     // Dashed on the way out: existing JOTS records are stored XXX-XX-XXXX, and
     // the draft holds raw digits. formatSsn returns "" on anything incomplete,
     // which the allowlist gate then drops rather than writing a partial number.
@@ -247,11 +255,28 @@ export function draftToJot(
     Home_Phone: draft.homePhone,
 
     Household_Size: draft.householdSize,
-    Will_File_Taxes: draft.willFileTaxes,
-    File_Jointly: draft.fileJointly,
+    Will_File_Taxes: PL.pinned(PL.WILL_FILE_TAXES, draft.willFileTaxes),
+    File_Jointly: PL.pinned(PL.FILE_JOINTLY, draft.fileJointly),
 
     Tobacco: primary ? yesNo(primary.tobacco) : "",
-    US_Citizen: draft.usCitizen,
+    US_Citizen: PL.pinned(PL.US_CITIZEN, draft.usCitizen),
+    Naturized_or_Derived: PL.pinned(PL.NATURALIZED_OR_DERIVED, draft.naturalizedOrDerived),
+    Incarcerated: PL.pinned(PL.INCARCERATED, draft.incarcerated),
+    American_Indian_AK_Nat: PL.pinned(
+      PL.AMERICAN_INDIAN_AK_NATIVE,
+      draft.americanIndianAkNative,
+    ),
+    Pregnant: PL.pinned(PL.PREGNANT, draft.pregnant),
+    Medicaid_CHIP_Denied_90d: PL.pinned(
+      PL.MEDICAID_CHIP_DENIED_90D,
+      draft.medicaidChipDenied90d,
+    ),
+    Employer_Coverage_Offer: PL.pinned(
+      PL.EMPLOYER_COVERAGE_OFFER,
+      draft.employerCoverageOffer,
+    ),
+    ICHRA_Status: PL.pinned(PL.ICHRA_STATUS, draft.ichraStatus),
+    Form_8962_Filed: PL.pinned(PL.FORM_8962_FILED, draft.form8962Filed),
 
     Household_Income: draft.householdIncome,
     Employment_Income: draft.employmentIncome,
@@ -259,10 +284,16 @@ export function draftToJot(
     Other_Income: draft.otherIncome,
     Employer: draft.employer,
 
-    Existing_Insurance_Coverage: draft.existingCoverage,
-    Type_of_Existing_Coverage: draft.typeOfExistingCoverage,
+    Existing_Insurance_Coverage: PL.pinned(
+      PL.EXISTING_INSURANCE_COVERAGE,
+      draft.existingCoverage,
+    ),
+    Type_of_Existing_Coverage: PL.pinned(
+      PL.TYPE_OF_EXISTING_COVERAGE,
+      draft.typeOfExistingCoverage,
+    ),
     Coverage_Loss_Date: draft.coverageLossDate,
-    Enrollment_Type: draft.enrollmentType,
+    Enrollment_Type: PL.pinned(PL.ENROLLMENT_TYPE, draft.enrollmentType),
     Enrollment_Event: draft.enrollmentEvent,
     Qualifying_Event_Date: draft.qualifyingEventDate,
 
@@ -302,10 +333,20 @@ export function draftToJot(
       const row: Record<string, unknown> = {
         First: p.firstName,
         Last: p.lastName,
-        Relation: p.relation === "spouse" ? "Spouse" : p.relation === "child" ? "Child" : "Other",
+        /* "Other Dependent", not "Other". The subform's Relation picklist
+         * offers Spouse / Child / Other Dependent, and Zoho silently drops
+         * anything else — so every non-spouse, non-child dependent was
+         * arriving with a blank relation. */
+        Relation: PL.pinned(
+          PL.DEPENDENT_RELATION,
+          p.relation === "spouse" ? "Spouse" : p.relation === "child" ? "Child" : "Other Dependent",
+        ),
         DoB: p.dateOfBirth,
-        Gender: p.sex,
-        Coverage: p.seekingCoverage ? "Covered" : "Not Covered",
+        Gender: PL.pinned(PL.GENDER, p.sex),
+        /* Yes/No. This was sending "Covered"/"Not Covered", which is not on
+         * the picklist — so EVERY dependent's coverage flag was silently
+         * dropped and arrived blank. */
+        Coverage: p.seekingCoverage ? "Yes" : "No",
         SSN: formatSsn(p.ssn),
       };
       return Object.fromEntries(

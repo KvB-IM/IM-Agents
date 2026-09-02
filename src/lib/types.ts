@@ -67,8 +67,18 @@ export interface CaptureDraft {
   phone: string;
   homePhone: string;
 
-  // Eligibility
+  // Eligibility. All single-valued because the Jot_Dependents subform has no
+  // columns for them — it holds only Address, SSN, First, Last, DoB, Gender,
+  // Relation and Coverage. These describe the primary applicant and household.
   usCitizen: string;
+  naturalizedOrDerived: string;
+  incarcerated: string;
+  americanIndianAkNative: string;
+  pregnant: string;
+  medicaidChipDenied90d: string;
+  employerCoverageOffer: string;
+  ichraStatus: string;
+  form8962Filed: string;
   willFileTaxes: string;
   fileJointly: string;
 

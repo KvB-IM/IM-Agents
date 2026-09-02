@@ -355,16 +355,50 @@ it the only place a genuine signature can be taken.
 
 ## Suggested order, if these get built
 
-1. **SEP event list to the full 28** (`event_type` enum). Cheap, removes
-   guesswork downstream.
-2. **The eligibility Yes/No questions the Jot already holds** — `Incarcerated`,
-   `American_Indian_AK_Nat`, `Pregnant`, `Naturized_or_Derived`,
-   `Medicaid_CHIP_Denied_90d`, `Employer_Coverage_Offer`, `ICHRA_Status`,
-   `Form_8962_Filed`. All picklists with fixed values, all currently chased by
-   phone.
+1. ~~**SEP event list to the full 28**~~ **Done.** All 28 in
+   `lib/enrollmentEvents.ts`, grouped for a phone-sized select, each carrying
+   HealthSherpa's `event_type` alongside the label stored on the Jot.
+   `Enrollment_Event` is a *text* field, so there is no picklist constraint on
+   the stored value. Includes an advisory 60-day-window warning.
+2. ~~**The eligibility Yes/No questions the Jot already holds**~~ **Done.**
+   `Incarcerated`, `American_Indian_AK_Nat`, `Pregnant`,
+   `Naturized_or_Derived`, `Medicaid_CHIP_Denied_90d`,
+   `Employer_Coverage_Offer`, `ICHRA_Status`, `Form_8962_Filed` — all pinned in
+   `lib/picklists.ts` and rendered from those declarations.
 3. **`Notice_Preference`, `Preferred_Language`, `Name_Suffix`** — three fields,
    trivial, on the form today.
 4. **Income sources and deductions as tables** — needs Zoho fields first, and a
    conversation with the office about whether the detail is used.
 5. **Consent and signature capture** — needs a compliance answer before any
    code.
+
+---
+
+# Appendix: three fields Zoho was silently discarding
+
+Found while pinning the picklists, and worth recording because the failure mode
+has no symptom at write time. Zoho accepts a picklist value that is not on the
+option list with a **2xx response and no warning** — the field simply arrives
+empty. So a form looked like it saved, and the office saw a blank.
+
+| Field | We were sending | Zoho's actual options |
+|---|---|---|
+| `Jot_Dependents.Coverage` | `Covered` / `Not Covered` | `Yes` / `No` |
+| `Jot_Dependents.Relation` | `Other` | `Spouse` / `Child` / **`Other Dependent`** |
+| `Type_of_Existing_Coverage` | `Employer`, `Marketplace`, `COBRA`, `Other` | `Medicare`, `Medicaid`, `Veterans Coverage / Tricare`, `Other Carrier` |
+
+The `Coverage` one is the most consequential: **every dependent on every
+agent-portal Jot had a blank coverage flag**, so nothing recorded whether a
+household member was actually seeking coverage.
+
+The fix is structural rather than three corrections. `lib/picklists.ts` declares
+every Zoho picklist value verbatim from field metadata, the UI is built *from*
+those declarations rather than from separately-typed option lists, and
+`pinned()` blanks anything off-list on the way out so the write allowlist drops
+it. An empty field is visibly empty; a value Zoho swallowed looks like the agent
+never answered.
+
+`Type_of_Existing_Coverage` is worth a note for the office: the picklist
+distinguishes government programmes from everything else, not employer from
+individual. Employer, marketplace and COBRA plans all land under
+`Other Carrier`, which is why the old UI options had nowhere to go.
