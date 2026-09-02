@@ -7,8 +7,10 @@
 -- clicking "Reconnect" rather than an engineer editing environment variables
 -- and waiting for a build.
 --
--- The env var still works and takes precedence when set, so nothing here is
--- required to get running. See lib/zohoToken.ts.
+-- There is deliberately no environment-variable path for the token: one source
+-- of truth, and a live CRM then requires DATABASE_URL, which makes a stubbed
+-- identity reading real client data impossible rather than merely guarded
+-- against. See lib/zohoToken.ts.
 --
 -- One row, ever. Enforced by a primary key on a constant.
 
@@ -42,7 +44,7 @@ create table if not exists zoho_connection (
 );
 
 comment on table zoho_connection is
-  'The single Zoho service connection. One row. Refresh token encrypted with APP_ENCRYPTION_KEY. ZOHO_REFRESH_TOKEN in the environment overrides this when set.';
+  'The single Zoho service connection. One row. Refresh token encrypted with APP_ENCRYPTION_KEY. Written by the OAuth callback; there is no environment-variable path.';
 
 -- ── OAuth state ────────────────────────────────────────────────────────────
 -- CSRF protection for the authorisation redirect.

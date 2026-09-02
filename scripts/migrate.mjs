@@ -44,6 +44,96 @@ function connectionString() {
   return null;
 }
 
+/**
+ * Split a SQL file into individual statements.
+ *
+ * Semicolon-splitting has to respect string literals, because at least one
+ * `comment on table` in db/ legitimately contains a semicolon inside its text
+ * — a naive split would cut it in half and produce two invalid statements.
+ *
+ * Handles: single-quoted strings including doubled-quote escapes ('' inside a
+ * literal), dollar-quoted blocks ($$ … $$ and $tag$ … $tag$), `--` line
+ * comments, and slash-star block comments. That is the whole surface this
+ * project's DDL uses; anything more exotic wants a real parser.
+ */
+function splitStatements(sql) {
+  const out = [];
+  let current = "";
+  let i = 0;
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    // Line comment: skip to end of line, keeping the newline.
+    if (ch === "-" && next === "-") {
+      while (i < sql.length && sql[i] !== "\n") i++;
+      continue;
+    }
+
+    // Block comment.
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+
+    // Single-quoted string. '' inside is a literal quote, not a terminator.
+    if (ch === "'") {
+      current += ch;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") {
+          current += "''";
+          i += 2;
+          continue;
+        }
+        if (sql[i] === "'") {
+          current += "'";
+          i++;
+          break;
+        }
+        current += sql[i];
+        i++;
+      }
+      continue;
+    }
+
+    // Dollar-quoted block: $tag$ … $tag$. Nothing inside is interpreted.
+    if (ch === "$") {
+      const tag = /^\$[A-Za-z_0-9]*\$/.exec(sql.slice(i));
+      if (tag) {
+        const marker = tag[0];
+        const end = sql.indexOf(marker, i + marker.length);
+        if (end === -1) {
+          current += sql.slice(i);
+          i = sql.length;
+        } else {
+          current += sql.slice(i, end + marker.length);
+          i = end + marker.length;
+        }
+        continue;
+      }
+    }
+
+    if (ch === ";") {
+      const trimmed = current.trim();
+      if (trimmed) out.push(trimmed);
+      current = "";
+      i++;
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+
+  const tail = current.trim();
+  if (tail) out.push(tail);
+  return out;
+}
+
 async function main() {
   loadEnvLocal();
   const dry = process.argv.includes("--dry");
@@ -103,11 +193,21 @@ async function main() {
       continue;
     }
 
-    process.stdout.write(`applying ${file} … `);
-    // Each file is one statement batch. The DDL here is all `if not exists`,
-    // so re-running a partially applied file is safe — which matters more than
-    // wrapping it in a transaction the HTTP driver cannot hold open.
-    await sql.query(body);
+    const statements = splitStatements(body);
+    process.stdout.write(`applying ${file} … ${statements.length} statement(s) `);
+
+    /* One call per statement: Neon's HTTP driver refuses a multi-statement
+     * body with "cannot insert multiple commands into a prepared statement".
+     *
+     * Not wrapped in a transaction, because the HTTP driver cannot hold one
+     * open across calls. That is acceptable here only because every statement
+     * in db/ is idempotent — `create table if not exists`, `create index if
+     * not exists`, `add column if not exists`, `comment on`. A partially
+     * applied file is safe to re-run, which is the property that replaces the
+     * transaction. Keep it that way when adding migrations. */
+    for (const statement of statements) {
+      await sql.query(statement);
+    }
     await sql`
       insert into schema_migrations (filename, sha256) values (${file}, ${sha})
       on conflict (filename) do update set sha256 = excluded.sha256, applied_at = now()
