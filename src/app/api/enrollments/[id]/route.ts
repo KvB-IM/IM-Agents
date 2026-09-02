@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { currentAgent } from "@/lib/session";
+import { currentAgentOrNull } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { getJot, applyCorrections, allowedCorrections } from "@/lib/store";
 import { isUpstreamError } from "@/lib/zoho";
@@ -13,7 +13,8 @@ import { isUpstreamError } from "@/lib/zoho";
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const agent = await currentAgent();
+  const agent = await currentAgentOrNull();
+  if (!agent) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
   const jot = await getJot(scope, id);
@@ -35,7 +36,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const agent = await currentAgent();
+  const agent = await currentAgentOrNull();
+  if (!agent) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
   let body: { patch?: Record<string, unknown> };

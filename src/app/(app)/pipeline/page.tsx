@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronRight, AlertTriangle, Clock } from "lucide-react";
-import { currentAgent } from "@/lib/session";
+import { requireAgent } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { listJots } from "@/lib/store";
 import { shortDate, daysSince } from "@/lib/format";
@@ -30,7 +30,7 @@ const BADGE_TONE = {
  * twice.
  */
 export default async function PipelinePage() {
-  const agent = await currentAgent();
+  const agent = await requireAgent("/pipeline");
   const scope = AgentScope.forAgent(agent.id, agent.name);
   const jots = await listJots(scope);
 

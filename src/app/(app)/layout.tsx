@@ -1,12 +1,12 @@
 import AppHeader from "@/components/AppHeader";
 import TabBar from "@/components/TabBar";
 import { DraftProvider } from "@/components/DraftContext";
-import { currentAgent } from "@/lib/session";
+import { requireAgent } from "@/lib/session";
 import { hsConfigured } from "@/lib/healthsherpa";
 import { usingLiveCrm } from "@/lib/store";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const agent = await currentAgent();
+  const agent = await requireAgent();
 
   return (
     <DraftProvider>

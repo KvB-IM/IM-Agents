@@ -1,10 +1,11 @@
 import { AlertTriangle, Clock, Inbox } from "lucide-react";
-import { currentAgent } from "@/lib/session";
+import { requireAgent } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { listJots } from "@/lib/store";
 import { computeKpis, STALL_DAYS } from "@/lib/kpis";
 import type { StageCount } from "@/lib/kpis";
 import { Card, CardHeader, Inset } from "@/components/ui";
+import SignOutButton from "@/components/SignOutButton";
 
 /* Rendered per request, never prerendered: these read the agent's own records,
    and a statically generated page would bake one agent's pipeline into the
@@ -24,7 +25,7 @@ export const dynamic = "force-dynamic";
  * statistic.
  */
 export default async function MePage() {
-  const agent = await currentAgent();
+  const agent = await requireAgent("/me");
   const scope = AgentScope.forAgent(agent.id, agent.name);
   const jots = await listJots(scope);
   const k = computeKpis(jots);
@@ -137,10 +138,7 @@ export default async function MePage() {
       </Card>
 
       <Inset>
-        <p className="text-[11px] leading-relaxed text-muted">
-          Prototype. Identity is stubbed to one agent — real accounts, invitations and MFA are
-          section 4.1 of the build scope.
-        </p>
+        <SignOutButton />
       </Inset>
     </div>
   );

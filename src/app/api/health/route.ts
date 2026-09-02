@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { currentAgent } from "@/lib/session";
+import { currentAgentOrNull } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { listJots, usingLiveCrm } from "@/lib/store";
 import { hsConfigured } from "@/lib/healthsherpa";
+import { dbConfigured } from "@/lib/db";
 import { isUpstreamError } from "@/lib/zoho";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,17 @@ export const dynamic = "force-dynamic";
  * it names the picklist as the likely cause of an empty result.
  */
 export async function GET() {
-  const agent = await currentAgent();
+  const agent = await currentAgentOrNull();
+  if (!agent) {
+    // Reachable without a session on purpose: this is the endpoint you hit when
+    // a deployment misbehaves, and requiring a login to find out that logins
+    // are broken is not useful. It exposes no client data.
+    return NextResponse.json({
+      auth: dbConfigured() ? "accounts configured; not signed in" : "no database; identity stubbed",
+      healthSherpa: hsConfigured() ? "live" : "fixture",
+      crm: usingLiveCrm() ? "live" : "fixture",
+    });
+  }
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
   const checks: Record<string, unknown> = {
@@ -30,6 +41,7 @@ export async function GET() {
     crm: usingLiveCrm()
       ? { configured: true, mode: "live" }
       : { configured: false, mode: "fixture", note: "Pipeline and KPIs are fixture data." },
+    auth: dbConfigured() ? { mode: "accounts" } : { mode: "stubbed", note: "No DATABASE_URL." },
     agent: { name: agent.name, agency: agent.agency },
   };
 

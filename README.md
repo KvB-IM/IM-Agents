@@ -38,7 +38,11 @@ broken one. `/api/health` warns on exactly this case.
 
 **3. Postgres** — `DATABASE_URL`, plus `DRAFT_ENCRYPTION_KEY` for draft SSNs.
 Vercel Postgres and Neon are the same engine, so one connection string serves
-both. Apply `db/*.sql` in order.
+both. Then `npm run migrate` and `npm run create-agent` — see
+**Authentication** below.
+
+Without it there are no accounts, the app runs on a stubbed identity, and the
+login screen says so plainly rather than showing a form that cannot work.
 
 ## Running it
 
@@ -67,7 +71,10 @@ cp .env.example .env.local
 | **Zoho CRM connection** | **Wired** — service token, COQL reads, create, update |
 | Idempotent submission | **Wired** via a unique deterministic Form ID |
 | Submission replay buffer | Schema in `db/003`; not yet written to |
-| Agent accounts, sessions, drafts | Schema in `db/001`–`db/002`; not yet wired |
+| **Login, sessions, sign-out** | **Wired** — scrypt, revocable sessions, throttling |
+| Route protection | **Wired** — middleware + `requireAgent` at the data |
+| Password reset, invitations, MFA | Schema ready; not built |
+| Server-side drafts | Schema in `db/002`; not yet wired |
 | ZIP → county (multi-county ZIPs handled) | Real route, fixture fallback |
 | Quote: household, DOBs, income → plans with premium/APTC/net | Real route, fixture fallback |
 | Application in HealthSherpa step order, 6 steps, dependents | Working, writes through an allowlist |
@@ -250,12 +257,71 @@ Also confirmed: the `Agent` picklist contains two generic entries, `Other` and
 `Aor`, alongside real agent names. `Other` is the safe value for a write test —
 it touches no real agent's pipeline or KPIs.
 
+## Authentication
+
+App-native accounts, admin-created. **No self-service registration** — an
+account here is a key to client PII including SSNs.
+
+```bash
+npm run migrate                      # apply db/*.sql
+npm run create-agent -- --email dana@example.com --zoho-name "Dana Ruiz"
+```
+
+The password is prompted for with echo off, never passed as an argument —
+anything on a command line lands in shell history and the process list.
+Re-running `create-agent` for an existing email resets the password, revokes
+that agent's live sessions, and clears their login throttle.
+
+⚠ `--zoho-name` must match the agent's entry in Zoho's `Agent` global picklist
+**exactly**, or their forms are attributed to nobody and their pipeline reads
+empty. The script says so before it writes.
+
+**Sessions are server-side and revocable.** The cookie carries 32 random bytes;
+`agent_sessions` stores only a SHA-256 of it, so a leaked database yields no
+working sessions. A lost iPad or a deactivated agent has to lose access *now*,
+which a self-contained JWT cannot deliver — that is why it is a table. The
+active-status check is in the session query's WHERE clause, so deactivating an
+agent kills their live session rather than waiting for expiry.
+
+**Passwords** use scrypt from `node:crypto` — memory-hard, no dependency to
+keep patched. Cost parameters travel with each hash, so they can be raised
+later without invalidating anyone. The anti-requirement is explicit in the
+scope doc: the ICHRA system used unsalted SHA-256.
+
+**Login failures all read the same.** Distinguishing "no such account" from
+"wrong password" is a free account-enumeration oracle, and the unknown-email
+path still runs a verify against a dummy hash so it costs the same time as a
+real one. The precise reason is recorded in `login_attempts` for whoever looks.
+
+**Throttling is in Postgres, not in memory.** On serverless an in-process
+counter is per-instance and an attacker gets a fresh allowance with every new
+one. Two independent limits: per email (guessing one agent) and per IP (one
+common password sprayed across many agents, which never trips a per-email
+limit).
+
+**A database outage fails closed.** `agentFromSession` catches, logs and returns
+null — the agent lands on the login screen. Treating an error as "signed in"
+would be an authentication bypass triggered by taking the database down.
+
+### Where the boundary actually is
+
+`middleware.ts` bounces unauthenticated requests, but it is a **convenience,
+not the boundary**. It runs on the Edge runtime with no database access, so it
+can only check that a cookie is *present* — a forged or expired one sails
+through. The real check is `requireAgent()` in the page or route that touches
+data. The matcher is an exclusion list, so a route added later is protected by
+default rather than exposed until someone remembers it.
+
+For the same reason `lib/cookies.ts` holds the cookie name and nothing else:
+importing it from `auth.ts` dragged `node:crypto` and the Postgres driver into
+the Edge bundle, which the build reported as an error against `password.ts` —
+a long way from the cause.
+
 ## Still scaffolding
 
-1. **`lib/session.ts` returns one hardcoded agent.** Real identity is scope
-   §4.1: app-native accounts, admin invitations, server-side revocable
-   sessions, MFA. Needs a database. Deliberately not stubbed with a fake login
-   screen.
+1. **No password reset, invitations, or MFA yet.** All three are in scope §4.1
+   and the schema is ready for them (`agent_invitations`). Until reset exists,
+   a locked-out agent is fixed by re-running `create-agent`.
 2. **Drafts live in `sessionStorage`.** They hold SSNs, so the real answer is a
    server-side draft with an enforced expiry (scope §4.3) — `sessionStorage` is
    the wrong place for those on a shared iPad. Needs the same database.

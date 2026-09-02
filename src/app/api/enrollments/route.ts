@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { currentAgent } from "@/lib/session";
+import { currentAgentOrNull } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { draftToJot } from "@/lib/jot";
 import { createJot, listJots } from "@/lib/store";
@@ -8,7 +8,8 @@ import type { CaptureDraft } from "@/lib/types";
 
 /** GET /api/enrollments → this agent's own Jots. */
 export async function GET() {
-  const agent = await currentAgent();
+  const agent = await currentAgentOrNull();
+  if (!agent) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   const scope = AgentScope.forAgent(agent.id, agent.name);
   try {
     return NextResponse.json({ jots: await listJots(scope) });
@@ -32,7 +33,8 @@ export async function GET() {
  * a bad connection does not file two applications.
  */
 export async function POST(request: NextRequest) {
-  const agent = await currentAgent();
+  const agent = await currentAgentOrNull();
+  if (!agent) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
   let body: { draft?: CaptureDraft; submissionKey?: string };

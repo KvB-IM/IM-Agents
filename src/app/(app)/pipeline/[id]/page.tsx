@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, AlertTriangle, FileCheck2, Clock } from "lucide-react";
-import { currentAgent } from "@/lib/session";
+import { requireAgent } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { getJot, CORRECTION_GROUPS } from "@/lib/store";
 import { monthYear, shortDate } from "@/lib/format";
@@ -28,7 +28,7 @@ const BADGE_TONE = {
  */
 export default async function JotDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const agent = await currentAgent();
+  const agent = await requireAgent(`/pipeline/${id}`);
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
   const jot = await getJot(scope, id);
