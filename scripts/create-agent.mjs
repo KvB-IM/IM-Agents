@@ -83,6 +83,17 @@ function promptHidden(question) {
   });
 }
 
+
+/* Same variable names lib/db.ts accepts, so the dashboard's injected
+ * variable works without being renamed by hand. */
+function connectionString() {
+  for (const name of ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL"]) {
+    const value = process.env[name];
+    if (value && value.trim() !== "") return value;
+  }
+  return null;
+}
+
 async function main() {
   loadEnvLocal();
 
@@ -106,8 +117,13 @@ async function main() {
     process.exit(1);
   }
 
-  if (!process.env.DATABASE_URL) {
-    console.error("DATABASE_URL is not set. Put it in .env.local, or export it.");
+  const url = connectionString();
+  if (!url) {
+    console.error(
+      "No database connection string. Set DATABASE_URL in .env, or export it.\n" +
+        "Vercel's storage integrations may inject POSTGRES_URL or DATABASE_URL_UNPOOLED\n" +
+        "instead, and those are accepted too.",
+    );
     process.exit(1);
   }
 
@@ -133,7 +149,7 @@ async function main() {
     process.exit(1);
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  const sql = neon(url);
   const passwordHash = await hashPassword(password);
 
   // Upsert on email so re-running this resets a password rather than failing on

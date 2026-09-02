@@ -3,7 +3,7 @@ import { currentAgentOrNull } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { listJots, usingLiveCrm } from "@/lib/store";
 import { hsConfigured } from "@/lib/healthsherpa";
-import { dbConfigured } from "@/lib/db";
+import { dbConfigured, databaseUrlSource } from "@/lib/db";
 import { isUpstreamError, zohoClientConfigured } from "@/lib/zoho";
 import { encryptionConfigured } from "@/lib/crypto";
 
@@ -50,8 +50,12 @@ export async function GET() {
             : "Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET, then connect from an admin profile.",
         },
     auth: dbConfigured()
-      ? { mode: "accounts" }
-      : { mode: "stubbed", note: "No DATABASE_URL — every visitor is the same agent." },
+      ? { mode: "accounts", connectionFrom: databaseUrlSource() }
+      : {
+          mode: "stubbed",
+          note: "No database connection string — every visitor is the same agent.",
+          accepted: "DATABASE_URL, POSTGRES_URL, POSTGRES_PRISMA_URL",
+        },
   };
 
   const agent = await currentAgentOrNull();

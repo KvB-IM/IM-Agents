@@ -7,14 +7,63 @@ import { neon } from "@neondatabase/serverless";
  * Same client IM-Website uses. HTTP rather than a TCP pool because this runs on
  * serverless functions: a pool per invocation exhausts connections, and the
  * HTTP driver has no connection to leak.
- *
- * Vercel Postgres and Neon are the same engine, so one DATABASE_URL serves
- * both. Use the pooled connection string here; the direct one is for
- * migrations.
  */
 
+/**
+ * Connection-string variables, in preference order.
+ *
+ * `DATABASE_URL` is what this app documents and what a hand-written .env will
+ * use. The rest are what Vercel's storage integrations inject automatically,
+ * and which one you get depends on how the database was created — the Neon
+ * marketplace integration sets `DATABASE_URL`, while older Vercel Postgres
+ * sets `POSTGRES_URL`. Accepting both means "Create Database" in the dashboard
+ * just works, instead of the app reporting no database while the dashboard
+ * plainly shows one attached.
+ *
+ * Pooled URLs come first. Every query here is a short HTTP request, which is
+ * exactly what a pooler is for.
+ */
+const POOLED_VARS = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL"] as const;
+
+/**
+ * Direct (unpooled) variables, preferred for migrations.
+ *
+ * DDL through a transaction pooler can behave differently from DDL on a direct
+ * connection, so `npm run migrate` reaches for these first when they exist.
+ */
+const DIRECT_VARS = [
+  "DATABASE_URL_UNPOOLED",
+  "POSTGRES_URL_NON_POOLING",
+  "DATABASE_URL",
+  "POSTGRES_URL",
+] as const;
+
+function firstSet(names: readonly string[]): string | null {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value && value.trim() !== "") return value;
+  }
+  return null;
+}
+
+/** The pooled connection string the app runs on, or null. */
+export function databaseUrl(): string | null {
+  return firstSet(POOLED_VARS);
+}
+
+/** The direct connection string, for schema changes. */
+export function directDatabaseUrl(): string | null {
+  return firstSet(DIRECT_VARS);
+}
+
 export function dbConfigured(): boolean {
-  return Boolean(process.env.DATABASE_URL);
+  return databaseUrl() !== null;
+}
+
+/** Which variable is actually supplying the connection — for the health check,
+ *  so a misnamed variable is diagnosable rather than mysterious. */
+export function databaseUrlSource(): string | null {
+  return POOLED_VARS.find((name) => process.env[name]?.trim()) ?? null;
 }
 
 /**
@@ -28,11 +77,12 @@ export function dbConfigured(): boolean {
  *   const rows = await sql`select * from agents where id = ${id}`;
  */
 export function sql() {
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl();
   if (!url) {
     throw new Error(
-      "DATABASE_URL is not configured. Authentication and drafts need Postgres; " +
-        "see .env.example and apply db/*.sql in order.",
+      `No database connection string. Set DATABASE_URL (or any of ${POOLED_VARS.join(", ")}). ` +
+        "Authentication, drafts and the Zoho connection all need Postgres; " +
+        "see .env.example, then run `npm run migrate`.",
     );
   }
   return neon(url);
