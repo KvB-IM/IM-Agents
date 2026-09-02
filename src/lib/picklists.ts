@@ -35,10 +35,18 @@ export interface Choice {
   label: string;
 }
 
-const yesNo: Choice[] = [
+/**
+ * Plain Yes/No, exported for questions that have no Zoho picklist yet and are
+ * carried in Agent_Notes (see lib/unhoused.ts). Same shape, so swapping them to
+ * real fields later is a one-line change per question.
+ */
+export const YES_NO: Choice[] = [
   { value: "Yes", label: "Yes" },
   { value: "No", label: "No" },
 ];
+
+/** Internal alias, so the Zoho-backed fields read as what they are. */
+const yesNo = YES_NO;
 
 /* ── Per-applicant eligibility ──────────────────────────────────────────────
  * All single-valued on the Jot: the dependents subform has only Address, SSN,

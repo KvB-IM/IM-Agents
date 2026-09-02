@@ -2,6 +2,8 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { formatSsn } from "./ssn";
 import * as PL from "./picklists";
+import { effectiveHouseholdSize } from "./household";
+import { unhousedAnswers } from "./unhoused";
 import type { CaptureDraft, Person } from "./types";
 import { ageAt } from "./age";
 
@@ -102,7 +104,12 @@ export const CAPTURE_WRITABLE = {
   Home_State: "text",
   Home_Zip: "text",
   Home_County: "text",
+  Mailing_Street: "text",
+  Mailing_City: "text",
+  Mailing_State: "text",
+  Mailing_Zip: "text",
   Mailing_County: "text",
+  Agent_Notes1: "textarea",
   No_SSN_Attestation: "boolean",
   Name_Suffix: "text",
   Email: "email",
@@ -249,12 +256,24 @@ export function draftToJot(
      * unless a separate mailing address is captured, which this form does not
      * yet do. */
     Home_County: draft.county?.name ?? "",
-    Mailing_County: draft.county?.name ?? "",
+
+    /* Mailing address. Mirrors the home address when the agent says they are
+     * the same, which is the common case and is what the office would
+     * otherwise copy by hand. County only carries over when the addresses
+     * match — a different mailing address may well be a different county, and
+     * we do not look that one up. */
+    Mailing_Street: draft.mailingSameAsHome ? draft.street : draft.mailingStreet,
+    Mailing_City: draft.mailingSameAsHome ? draft.city : draft.mailingCity,
+    Mailing_State: draft.mailingSameAsHome
+      ? (draft.county?.state ?? "")
+      : draft.mailingState,
+    Mailing_Zip: draft.mailingSameAsHome ? draft.zip : draft.mailingZip,
+    Mailing_County: draft.mailingSameAsHome ? (draft.county?.name ?? "") : "",
     Email: draft.email,
     Phone: draft.phone,
     Home_Phone: draft.homePhone,
 
-    Household_Size: draft.householdSize,
+    Household_Size: effectiveHouseholdSize(draft),
     Will_File_Taxes: PL.pinned(PL.WILL_FILE_TAXES, draft.willFileTaxes),
     File_Jointly: PL.pinned(PL.FILE_JOINTLY, draft.fileJointly),
 
@@ -266,7 +285,10 @@ export function draftToJot(
       PL.AMERICAN_INDIAN_AK_NATIVE,
       draft.americanIndianAkNative,
     ),
-    Pregnant: PL.pinned(PL.PREGNANT, draft.pregnant),
+    /* Only the PRIMARY's answer has a field. Anyone else's goes into
+     * Agent_Notes via unhousedAnswers below, because Jot_Dependents has no
+     * Pregnant column and losing it would be worse than putting it in prose. */
+    Pregnant: PL.pinned(PL.PREGNANT, primary?.pregnant ?? ""),
     Medicaid_CHIP_Denied_90d: PL.pinned(
       PL.MEDICAID_CHIP_DENIED_90D,
       draft.medicaidChipDenied90d,
@@ -309,6 +331,12 @@ export function draftToJot(
 
     Form_Type: "Agent Portal",
     Method: "Field Agent",
+
+    /* Answers with no dedicated field yet. Empty string when there are none,
+     * which the allowlist gate then drops — so a Jot with nothing to report
+     * carries no note at all. See lib/unhoused.ts for the five fields that
+     * would retire this. */
+    Agent_Notes1: unhousedAnswers(draft),
   };
 
   // Allowlist gate.

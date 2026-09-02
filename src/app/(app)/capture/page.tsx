@@ -9,6 +9,7 @@ import PersonEditor from "@/components/PersonEditor";
 import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Badge, Empty, Inset } from "@/components/ui";
 import { money, monthYear } from "@/lib/format";
 import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
+import { effectiveHouseholdSize } from "@/lib/household";
 import * as PL from "@/lib/picklists";
 import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
 import type { Jot } from "@/lib/types";
@@ -249,6 +250,63 @@ export default function CapturePage() {
                 />
               </Field>
             </div>
+
+            <Field label="Mailing address is the same as the home address">
+              <Toggle
+                value={draft.mailingSameAsHome}
+                onChange={(v) => patch({ mailingSameAsHome: v })}
+              />
+            </Field>
+
+            {/* Only shown when it differs. Asking for a second address that is
+                almost always identical is four fields of busywork on a phone,
+                and copying it by hand is what the office does today. */}
+            {!draft.mailingSameAsHome ? (
+              <div className="space-y-3 rounded-xl bg-navy-50 p-3 ring-1 ring-navy-100">
+                <Field label="Mailing street">
+                  <TextInput
+                    value={draft.mailingStreet}
+                    onChange={(e) => patch({ mailingStreet: e.target.value })}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="City">
+                    <TextInput
+                      value={draft.mailingCity}
+                      onChange={(e) => patch({ mailingCity: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="State">
+                    <TextInput
+                      value={draft.mailingState}
+                      onChange={(e) => patch({ mailingState: e.target.value.toUpperCase() })}
+                      maxLength={2}
+                      autoCapitalize="characters"
+                    />
+                  </Field>
+                </div>
+                <Field label="ZIP">
+                  <TextInput
+                    value={draft.mailingZip}
+                    onChange={(e) =>
+                      patch({ mailingZip: e.target.value.replace(/\D/g, "").slice(0, 5) })
+                    }
+                    inputMode="numeric"
+                  />
+                </Field>
+              </div>
+            ) : null}
+
+            {/* Only worth asking when more than one person is on the form. */}
+            {draft.people.length > 1 ? (
+              <PickField
+                label="Everyone applying lives at this address"
+                choices={PL.YES_NO}
+                value={draft.everyoneSameAddress}
+                onChange={(everyoneSameAddress) => patch({ everyoneSameAddress })}
+                hint="If not, the office will need the other address."
+              />
+            ) : null}
           </div>
         </Card>
       ) : null}
@@ -258,9 +316,16 @@ export default function CapturePage() {
         <Card>
           <CardHeader title="Tax household" hint="Filing intent drives eligibility for the credit." />
           <div className="space-y-4 px-4 pb-4">
-            <Field label="Household size">
+            {/* Pre-filled from the people on the form rather than left blank —
+                the agent was typing the same number twice. Still editable: a
+                TAX household can include someone not applying, or exclude a
+                member who files separately. */}
+            <Field
+              label="Household size"
+              hint="Everyone on the tax return, not just those applying."
+            >
               <TextInput
-                value={draft.householdSize ?? ""}
+                value={draft.householdSize ?? effectiveHouseholdSize(draft)}
                 onChange={(e) =>
                   patch({ householdSize: e.target.value === "" ? null : Number(e.target.value) })
                 }
@@ -288,17 +353,41 @@ export default function CapturePage() {
 
             {/* Only asked of a citizen — it is the follow-up the application
                 itself shows conditionally. */}
+            {/* "Naturalized or derived citizen" is jargon, and answering it
+                wrong is not harmless: a Yes makes the exchange ask for
+                citizenship paperwork, which delays the enrollment for someone
+                who never needed to provide any. So the question is asked in
+                plain words, framed the way it actually applies — born here is
+                the common case — and the consequence is stated. */}
             {draft.usCitizen === "Yes" ? (
-              <Field label="Naturalized or derived citizen">
+              <Field label="Were they born in the United States?">
                 <Toggle
                   value={
                     draft.naturalizedOrDerived === ""
                       ? null
-                      : draft.naturalizedOrDerived === "Yes"
+                      : draft.naturalizedOrDerived === "No"
                   }
-                  onChange={(v) => patch({ naturalizedOrDerived: v ? "Yes" : "No" })}
+                  labels={["Born in the US", "Became a citizen later"]}
+                  /* Inverted on purpose: the field records "naturalized or
+                     derived", which is the opposite of "born here". Asking the
+                     question the way a person understands it and translating
+                     once, here, beats asking the jargon version. */
+                  onChange={(bornInUs) =>
+                    patch({ naturalizedOrDerived: bornInUs ? "No" : "Yes" })
+                  }
                 />
               </Field>
+            ) : null}
+
+            {draft.naturalizedOrDerived === "Yes" ? (
+              <p className="flex items-start gap-2 rounded-xl bg-navy-50 px-3 py-2.5 text-[12px] leading-snug text-navy-900 ring-1 ring-navy-100">
+                <AlertCircle size={15} className="mt-0.5 shrink-0 text-navy-600" aria-hidden />
+                <span>
+                  Because they became a citizen rather than being born here, the exchange will
+                  ask for a document — a naturalisation certificate, certificate of citizenship,
+                  or US passport. Only answer this way if that is genuinely the case.
+                </span>
+              </p>
             ) : null}
           </div>
         </Card>
@@ -313,12 +402,6 @@ export default function CapturePage() {
           />
           <div className="space-y-4 px-4 pb-4">
             <PickField
-              label="Pregnant"
-              choices={PL.PREGNANT}
-              value={draft.pregnant}
-              onChange={(pregnant) => patch({ pregnant })}
-            />
-            <PickField
               label="Currently incarcerated"
               choices={PL.INCARCERATED}
               value={draft.incarcerated}
@@ -330,6 +413,31 @@ export default function CapturePage() {
               value={draft.americanIndianAkNative}
               onChange={(americanIndianAkNative) => patch({ americanIndianAkNative })}
               hint="Changes cost-sharing and enrollment windows, so it is worth asking."
+            />
+            <PickField
+              label="Wants to check for cost savings"
+              choices={PL.YES_NO}
+              value={draft.wantsCostSavings}
+              onChange={(wantsCostSavings) => patch({ wantsCostSavings })}
+              hint="Saying no skips the income questions and forfeits any tax credit."
+            />
+            <PickField
+              label="On Medicare Part A or C, now or within 3 months"
+              choices={PL.YES_NO}
+              value={draft.medicareEnrolledOrSoon}
+              onChange={(medicareEnrolledOrSoon) => patch({ medicareEnrolledOrSoon })}
+            />
+            <PickField
+              label="Will be claimed as a tax dependent by someone else"
+              choices={PL.YES_NO}
+              value={draft.claimedAsDependent}
+              onChange={(claimedAsDependent) => patch({ claimedAsDependent })}
+            />
+            <PickField
+              label="Cares for a child under 19 who is not on this application"
+              choices={PL.YES_NO}
+              value={draft.caresForUnder19}
+              onChange={(caresForUnder19) => patch({ caresForUnder19 })}
             />
             <PickField
               label="Denied Medicaid or CHIP in the last 90 days"

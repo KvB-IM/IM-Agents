@@ -113,6 +113,21 @@ export default function PersonEditor({
         </Field>
       </div>
 
+      {/* Asked of every FEMALE applicant seeking coverage, not just the
+          primary — it affects eligibility for that person. Hidden otherwise
+          rather than shown as "N/A", because a question that cannot apply is
+          noise on a phone. */}
+      {person.sex === "Female" && person.seekingCoverage ? (
+        <div className="mt-3">
+          <Field label="Pregnant">
+            <Toggle
+              value={person.pregnant === "" ? null : person.pregnant === "Yes"}
+              onChange={(v) => onChange({ pregnant: v ? "Yes" : "No" })}
+            />
+          </Field>
+        </div>
+      ) : null}
+
       {/* Required for anyone seeking coverage — the exchange will not process
           an applicant without one. Someone on the form for tax-household
           purposes only does not need it, so the requirement follows coverage

@@ -14,6 +14,15 @@ export interface Person {
   dateOfBirth: string;
   sex: "" | "Male" | "Female";
   tobacco: boolean;
+  /**
+   * Pregnant. Per-person, because the application asks it of every female
+   * applicant seeking coverage — not just the primary.
+   *
+   * ⚠️ The Jot's `Pregnant` field is single-valued and Jot_Dependents has no
+   * column for it, so only the primary's answer has a home. Anyone else's is
+   * written into Agent_Notes so it is not lost. See draftToJot.
+   */
+  pregnant: string;
   /** Raw digits, no dashes — the dashed form is presentation and is applied on
    *  submit. Write-only from the field: submitted, never read back. */
   ssn: string;
@@ -53,6 +62,24 @@ export interface CaptureDraft {
   street: string;
   city: string;
 
+  /** "Is the mailing address the same as the home address?" */
+  mailingSameAsHome: boolean;
+  mailingStreet: string;
+  mailingCity: string;
+  mailingState: string;
+  mailingZip: string;
+
+  /**
+   * Questions the application asks that have NO dedicated Jot field yet.
+   * Written into Agent_Notes as a delimited block so the office sees them and
+   * nothing is lost; each becomes a real field once Zoho has one.
+   */
+  wantsCostSavings: string;
+  medicareEnrolledOrSoon: string;
+  claimedAsDependent: string;
+  caresForUnder19: string;
+  everyoneSameAddress: string;
+
   // Household
   people: Person[];
   householdSize: number | null;
@@ -74,7 +101,6 @@ export interface CaptureDraft {
   naturalizedOrDerived: string;
   incarcerated: string;
   americanIndianAkNative: string;
-  pregnant: string;
   medicaidChipDenied90d: string;
   employerCoverageOffer: string;
   ichraStatus: string;
