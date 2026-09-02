@@ -1,7 +1,12 @@
 node_modules
 .next
-.env.local
-.env*.local
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# Every env file except the checked-in template. `.env` was NOT covered before
+# and this repo is public, so a client secret or database URL placed there
+# would have been committed.
+.env
+.env.*
+!.env.example
