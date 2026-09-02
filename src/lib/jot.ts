@@ -100,7 +100,10 @@ export const CAPTURE_WRITABLE = {
   Home_City: "text",
   Home_State: "text",
   Home_Zip: "text",
+  Home_County: "text",
   Mailing_County: "text",
+  No_SSN_Attestation: "boolean",
+  Name_Suffix: "text",
   Email: "email",
   Phone: "phone",
   Home_Phone: "phone",
@@ -223,11 +226,21 @@ export function draftToJot(
     // the draft holds raw digits. formatSsn returns "" on anything incomplete,
     // which the allowlist gate then drops rather than writing a partial number.
     SSN: formatSsn(primary?.ssn ?? ""),
+    // Boolean on the Jot. Only sent when true — the allowlist gate drops
+    // false, and an absent value reads the same as "not attested".
+    ...(primary?.noSsn ? { No_SSN_Attestation: true } : {}),
 
     Home_Street: draft.street,
     Home_City: draft.city,
     Home_State: draft.county?.state ?? "",
     Home_Zip: draft.zip,
+    /* The county belongs to the HOME address, which is the one this form
+     * collects. It was being written to Mailing_County only — so a Jot filed
+     * from the field had no home county, while the office's own transcription
+     * fills Home_County. Both are written now; they are the same address
+     * unless a separate mailing address is captured, which this form does not
+     * yet do. */
+    Home_County: draft.county?.name ?? "",
     Mailing_County: draft.county?.name ?? "",
     Email: draft.email,
     Phone: draft.phone,

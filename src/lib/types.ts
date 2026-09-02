@@ -20,6 +20,20 @@ export interface Person {
   /** Second entry, compared on the digits. Never leaves the browser: it exists
    *  to catch a typo, and sending it would just be a second copy of an SSN. */
   ssnConfirm: string;
+  /**
+   * "This person has never been issued an SSN."
+   *
+   * A real path on HealthSherpa's application and a real field on the Jot
+   * (`No_SSN_Attestation`, boolean). Making SSN unconditionally required would
+   * have blocked a lawful enrollment — an applicant who has genuinely never
+   * been issued one cannot produce a number, and the exchange accepts the
+   * attestation instead.
+   *
+   * It is an attestation, not a convenience: HealthSherpa's own wording is
+   * "You may only check this box if this person attests that they have never
+   * been issued an SSN by the Social Security Administration."
+   */
+  noSsn: boolean;
   seekingCoverage: boolean;
 }
 

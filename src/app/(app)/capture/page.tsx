@@ -53,6 +53,8 @@ export default function CapturePage() {
       const who =
         [person.firstName, person.lastName].filter(Boolean).join(" ") ||
         (person.relation === "primary" ? "the applicant" : "a household member");
+      // Attested as never issued: no number to require or confirm.
+      if (person.noSsn) continue;
       if (ssnDigits(person.ssn).length === 0) return `${who} needs an SSN.`;
       if (!ssnConfirmed(person.ssn, person.ssnConfirm)) {
         return `${who}'s SSN entries do not match.`;

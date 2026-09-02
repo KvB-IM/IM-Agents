@@ -123,8 +123,15 @@ export default function PersonEditor({
             label="SSN"
             value={person.ssn}
             confirmValue={person.ssnConfirm}
+            noSsn={person.noSsn}
             onChange={(ssn) => onChange({ ssn })}
             onConfirmChange={(ssnConfirm) => onChange({ ssnConfirm })}
+            /* Checking the attestation clears any digits already typed: the
+               two states are exclusive, and a stale number left behind would
+               be filed alongside a claim that none exists. */
+            onNoSsnChange={(noSsn) =>
+              onChange(noSsn ? { noSsn, ssn: "", ssnConfirm: "" } : { noSsn })
+            }
           />
         </div>
       ) : null}

@@ -251,3 +251,120 @@ Not currently used, listed because two of them change what is possible.
 `api_enrollable` on a quoted plan is worth watching: the plans returned for Maricopa AZ
 all came back `false`, which is consistent with on-exchange having no direct enrollment
 API at all.
+
+---
+
+# Appendix: the consumer application, screen by screen
+
+A second source arrived after the above was written — a transcription of
+HealthSherpa's actual on-exchange application screens, OCR'd from a printed
+application:
+`KB/Insurance Masters/Inbox/HealthSherpa_ACA_Enrollment_Reference.md`.
+
+It is more useful than the OpenAPI spec for our purposes, because the OpenAPI's
+full-application schema is off-exchange ICHRA only, while this is **the
+on-exchange Marketplace flow the office actually types into**. The two agree
+where they overlap.
+
+## The Jot already has room for nearly all of it
+
+Checked against JOTS field metadata — **154 fields**. Almost every question on
+those screens has a home in the CRM, which means the office is capturing them
+today and the field app is simply not asking:
+
+| Screen question | Jot field | Type |
+|---|---|---|
+| "This person doesn't have an SSN" | `No_SSN_Attestation` | boolean |
+| Currently incarcerated? | `Incarcerated` | Yes/No |
+| American Indian or Alaska Native? | `American_Indian_AK_Nat` | Yes/No |
+| Pregnant? | `Pregnant` | Yes/No/N/A |
+| Naturalized or derived citizen? | `Naturized_or_Derived` | Yes/No |
+| Found ineligible for Medicaid/CHIP in last 90 days? | `Medicaid_CHIP_Denied_90d` | Yes/No/Unknown |
+| ICHRA offered / enrolled | `ICHRA_Status` | No ICHRA / Offered - Not Accepted / Enrolled in ICHRA / Unknown |
+| Offered coverage through their own job? | `Employer_Coverage_Offer` | Yes/No/Unknown |
+| Form 8962 reconciliation | `Form_8962_Filed` | Yes/No/Not Applicable/Unknown |
+| Written / spoken language | `Preferred_Language` | text |
+| Notice delivery preference | `Notice_Preference` | Email and Text / Paper Mail |
+| Suffix | `Name_Suffix` | text |
+| County (home) | `Home_County` | text |
+| Deductions | `Deductions` (currency), `Deduction_Type` (text) | |
+| Filed taxes | `Filed_Taxes` | Yes/No |
+
+Nothing in the CRM for: race/ethnicity and Hispanic origin, disability and
+daily-activity help, citizenship document type, under-19 co-residents and
+primary caretaker. Those are the genuinely absent ones — and all are either
+optional on the application or questions the exchange asks directly.
+
+## Two defects this document exposed
+
+**1. SSN was made unconditionally required.** The application has an explicit
+checkbox — *"This person doesn't have an SSN. You may only check this box if
+this person attests that they have never been issued an SSN by the Social
+Security Administration"* — and the Jot has `No_SSN_Attestation` to record it.
+Requiring a number outright would have blocked a lawful enrollment for someone
+never issued one. Fixed: the attestation stands in for the number, clears any
+digits already typed, and is carried to the Jot. The wording is HealthSherpa's
+verbatim rather than paraphrased, because ticking it is an attestation.
+
+**2. The county was written to `Mailing_County` only.** The form collects a
+*home* address, and `Home_County` exists and is what the office fills. A Jot
+filed from the field had a blank home county. Both are now written; they are the
+same value until this form captures a separate mailing address, which it does
+not yet do.
+
+## The structural gap: income
+
+The biggest divergence, and probably the largest source of back-office rework.
+
+**The application asks, per person:** does this person currently get income →
+then a *table* of income sources, each with a type and a monthly amount →
+then a table of deductions, same shape → then confirms a calculated annual
+figure, with "is this hard to predict?" and a manual override.
+
+**Our capture form asks:** four flat annual numbers — household, employment,
+spouse employment, other.
+
+So an agent enters `$110,000 employment` and the office has to reconstruct
+"Job / Insurance Masters — $9,166.00 per month" plus "Self-employment —
+$500.00 per month" from a conversation that already happened. The Jot's own
+income fields are equally flat, so the CRM cannot hold the detail either — this
+would need Zoho fields before the capture form could usefully collect it.
+
+Worth raising with the office before building: is the per-source detail actually
+re-derived by the enroller, or is the flat annual figure genuinely all they use?
+
+## Consent and signature, which we collect none of
+
+The application opens with a privacy statement, **two required consent
+checkboxes**, and a typed full-name electronic signature with a date. It closes
+with renewal-of-eligibility agreement, two tax attestations, a change-reporting
+agreement, Medicare-termination permission, and a penalty-of-perjury signature.
+
+The OpenAPI's `Attestations` block matches: six agent-specific assertions
+including `agent_retained_signed_application_copy` and
+`consumer_working_with_agent`, plus `signatures.signature_date`.
+
+The application also asks directly: **"Is a professional helping you complete
+your application?"**
+
+Nothing in the field app captures any of this, and there is no obvious Jot field
+for it either. If an agent sits with a client and the office later signs on the
+consumer's behalf, that is a compliance question rather than a software one —
+but the field app is the only place the client is actually present, which makes
+it the only place a genuine signature can be taken.
+
+## Suggested order, if these get built
+
+1. **SEP event list to the full 28** (`event_type` enum). Cheap, removes
+   guesswork downstream.
+2. **The eligibility Yes/No questions the Jot already holds** — `Incarcerated`,
+   `American_Indian_AK_Nat`, `Pregnant`, `Naturized_or_Derived`,
+   `Medicaid_CHIP_Denied_90d`, `Employer_Coverage_Offer`, `ICHRA_Status`,
+   `Form_8962_Filed`. All picklists with fixed values, all currently chased by
+   phone.
+3. **`Notice_Preference`, `Preferred_Language`, `Name_Suffix`** — three fields,
+   trivial, on the form today.
+4. **Income sources and deductions as tables** — needs Zoho fields first, and a
+   conversation with the office about whether the detail is used.
+5. **Consent and signature capture** — needs a compliance answer before any
+   code.

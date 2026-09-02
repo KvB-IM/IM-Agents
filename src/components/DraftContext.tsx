@@ -26,6 +26,7 @@ export function emptyPerson(relation: Person["relation"]): Person {
     tobacco: false,
     ssn: "",
     ssnConfirm: "",
+    noSsn: false,
     seekingCoverage: true,
   };
 }

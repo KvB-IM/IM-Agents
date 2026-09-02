@@ -28,15 +28,19 @@ export default function SsnInput({
   label,
   value,
   confirmValue,
+  noSsn,
   onChange,
   onConfirmChange,
+  onNoSsnChange,
   required = true,
 }: {
   label: string;
   value: string;
   confirmValue: string;
+  noSsn: boolean;
   onChange: (digits: string) => void;
   onConfirmChange: (digits: string) => void;
+  onNoSsnChange: (v: boolean) => void;
   required?: boolean;
 }) {
   // Only complain once they have left the field. Showing "an SSN is required"
@@ -65,6 +69,21 @@ export default function SsnInput({
    * field, and getting it wrong silently caps the number at two digits. */
   const handle = (raw: string, current: string, apply: (d: string) => void) =>
     apply(applySsnInput(raw, current));
+
+  /* Attested as never issued: the number is not required and the boxes are
+     not shown at all. Leaving them visible-but-disabled invites an agent to
+     type into a dead field and wonder why nothing happens. */
+  if (noSsn) {
+    return (
+      <div className="space-y-2">
+        <NoSsnToggle checked onChange={onNoSsnChange} />
+        <p className="text-[12px] leading-snug text-muted">
+          The exchange will accept the attestation instead of a number. Only use this when the
+          person has genuinely never been issued an SSN.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -108,6 +127,37 @@ export default function SsnInput({
           ) : null}
         </div>
       </Field>
+
+      <NoSsnToggle checked={false} onChange={onNoSsnChange} />
     </div>
+  );
+}
+
+/**
+ * The never-issued attestation.
+ *
+ * Wording taken from HealthSherpa's own screen rather than paraphrased — it is
+ * an attestation the applicant makes, and softening it would misrepresent what
+ * ticking the box means.
+ */
+function NoSsnToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-navy-50 px-3 py-2.5 ring-1 ring-navy-100">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 size-5 shrink-0 rounded border-line accent-navy-900"
+      />
+      <span className="text-[12px] leading-snug text-navy-900">
+        This person has never been issued an SSN by the Social Security Administration.
+      </span>
+    </label>
   );
 }

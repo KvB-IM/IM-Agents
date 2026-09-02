@@ -76,6 +76,10 @@ export async function POST(request: NextRequest) {
    * date. */
   for (const person of draft.people ?? []) {
     if (!person.seekingCoverage) continue;
+    // The never-issued attestation stands in for a number. HealthSherpa and the
+    // Jot both model this explicitly, so requiring an SSN unconditionally would
+    // block a lawful enrollment.
+    if (person.noSsn) continue;
     const who = [person.firstName, person.lastName].filter(Boolean).join(" ") || "an applicant";
     const problem = ssnProblem(ssnDigits(person.ssn ?? ""));
     if (problem) {
