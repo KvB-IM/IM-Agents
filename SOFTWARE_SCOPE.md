@@ -348,6 +348,18 @@ endpoints return 401/403 with *"not authorized to access this endpoint"*.
 | Agent Enrollment API | Partnership review | Agent submits the real application from this app |
 | Enrollment Session API | Partnership review | Already coded in `IM-Website`, currently 403 |
 
+⚠️ **Correction, from reading their OpenAPI spec** — see
+[`docs/healthsherpa-contract.md`](docs/healthsherpa-contract.md). There is **no API that
+submits an on-exchange ACA application.** `POST /v1/enrollments` takes a full application
+but is limited to `product: ichra` / `exchange: off_exchange`. On-exchange goes through
+`POST /v1/enrollment-sessions`, which "always returns deep links and does not create
+direct enrollment application records" — two URLs a person then works through in a
+browser.
+
+So Phase 2 reduces the office's transcription rather than eliminating it: the household
+arrives pre-filled instead of being retyped, but a human still finishes the application on
+HealthSherpa. Worth knowing before anyone promises otherwise.
+
 When access lands:
 
 1. `POST /v1/enrollment-sessions` is **already written and validated** in
@@ -422,9 +434,14 @@ Answer before building the affected area; none of them block starting on §4.1�
 6. **Offline capture, or online-only?** True offline means PII at rest on the iPad and a
    sync-conflict model. Recommendation: online-only with resilient server-side drafts
    (§4.3), which covers flaky connectivity without the offline data-at-rest problem.
-7. **What signature and consent capture is legally required** at the point the agent
-   submits, versus at HealthSherpa? Affects §4.4 and whether Phase 1 needs signature
-   capture at all.
+7. ~~**What signature and consent capture is legally required**~~ **Partly answered.**
+   HealthSherpa's `Attestations` schema carries six agent-specific assertions —
+   `agent_submitted_application`, `agent_provided_consumer_marketing_materials`,
+   `agent_advised_consumer_of_product_features`, `agent_retained_signed_application_copy`,
+   `consumer_working_with_agent`, `broker_signature_attestation` — plus a
+   `signatures.signature_date`. If the office is asserting those on an agent's behalf
+   today, the field app is where they should actually be captured. Remaining question is
+   which are legally required versus merely accepted.
 8. **Is there an existing Zoho report or definition of "agent production"** the KPIs should
    match, so this app and the office agree on the numbers? Specifically: does the office
    count a re-submission as its own form, and does it measure enrolled against everything
