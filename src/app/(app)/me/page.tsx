@@ -230,7 +230,6 @@ async function adminPanel(agentId: string, zoho: string | undefined) {
     return (
       <ZohoConnection
         connected={Boolean(creds)}
-        source={creds?.source ?? null}
         connectedAt={
           row?.connected_at ? new Date(row.connected_at).toLocaleString("en-US") : null
         }

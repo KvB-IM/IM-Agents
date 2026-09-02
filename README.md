@@ -33,7 +33,13 @@ refresh token is obtained by an **admin pressing "Connect the CRM"** on their
 profile and stored AES-256-GCM encrypted in `zoho_connection`, so reconnecting
 never needs a redeploy — which matters, because Zoho refresh tokens do get
 revoked, and the fix at 9pm during open enrollment should be a click.
-`ZOHO_REFRESH_TOKEN` still works as an override and takes precedence.
+
+There is deliberately **no `ZOHO_REFRESH_TOKEN` environment variable**. One
+source of truth for the credential, and it is not sitting in a dashboard where
+project access is enough to read it. It also buys a structural guarantee: a
+live CRM now requires `DATABASE_URL`, and the stubbed identity only exists
+*without* `DATABASE_URL`, so "every visitor is the same agent, reading real
+client data" cannot happen — rather than being caught by a runtime check.
 
 Scopes requested:
 

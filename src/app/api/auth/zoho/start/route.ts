@@ -31,8 +31,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "A database is required to store the connection. Set DATABASE_URL and run migrations, " +
-          "or set ZOHO_REFRESH_TOKEN directly in the environment.",
+          "A database is required to store the connection. Set DATABASE_URL and run migrations.",
       },
       { status: 503 },
     );

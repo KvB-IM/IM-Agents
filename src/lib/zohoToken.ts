@@ -5,19 +5,25 @@ import { encryptSecret, decryptSecret, encryptionConfigured } from "./crypto";
 /**
  * Where the Zoho refresh token comes from.
  *
- * Two sources, in this order:
+ * Exactly one place: the encrypted `zoho_connection` row, written by the OAuth
+ * callback. There is deliberately no environment-variable path.
  *
- *   1. `ZOHO_REFRESH_TOKEN` in the environment. Wins when set, so a deployment
- *      can be pinned to a known-good token without touching the database, and
- *      so the app runs before any of this schema exists.
+ * There used to be one, inherited from the Self Client design where a callback
+ * did not exist and pasting a token was the only option. With a Server-based
+ * Application it earned nothing and cost several things: a second source of
+ * truth for a credential, a long-lived secret sitting in a Vercel dashboard
+ * where project access is enough to read it, and — because it took precedence
+ * — a way to silently make the admin Connect button inert.
  *
- *   2. The `zoho_connection` row, encrypted. Written by the OAuth callback,
- *      which is what makes "Reconnect Zoho" an admin clicking a button rather
- *      than an engineer redeploying.
+ * Removing it also removed a whole class of misconfiguration. A live CRM now
+ * REQUIRES the database, and the stubbed identity only exists when there is no
+ * database, so "every visitor is the same agent, reading real client data"
+ * is impossible by construction rather than guarded against at runtime. See
+ * lib/session.ts.
  *
- * Cached in-process for a short while. Without it every access-token refresh
- * would also cost a database round trip, and the token itself changes only when
- * somebody reconnects.
+ * Cached in-process briefly. Without it every access-token refresh would also
+ * cost a database round trip, and the token changes only when somebody
+ * reconnects.
  */
 
 interface TokenCache {
@@ -38,7 +44,6 @@ export interface ZohoCredentials {
   refreshToken: string;
   /** Zoho returns the correct API domain on exchange; prefer it over a guess. */
   apiDomain: string | null;
-  source: "env" | "database";
 }
 
 /** True when a client id/secret pair is configured — the part that always
@@ -59,17 +64,6 @@ export async function zohoCredentials(): Promise<ZohoCredentials | null> {
   const clientSecret = process.env.ZOHO_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
 
-  const envToken = process.env.ZOHO_REFRESH_TOKEN;
-  if (envToken) {
-    return {
-      clientId,
-      clientSecret,
-      refreshToken: envToken,
-      apiDomain: process.env.ZOHO_API_HOST ?? null,
-      source: "env",
-    };
-  }
-
   if (!dbConfigured() || !encryptionConfigured()) return null;
 
   if (cache.token && Date.now() - cache.readAt < CACHE_TTL_MS) {
@@ -78,7 +72,6 @@ export async function zohoCredentials(): Promise<ZohoCredentials | null> {
       clientSecret,
       refreshToken: cache.token,
       apiDomain: cache.apiDomain,
-      source: "database",
     };
   }
 
@@ -111,7 +104,6 @@ export async function zohoCredentials(): Promise<ZohoCredentials | null> {
       clientSecret,
       refreshToken: token,
       apiDomain: row.api_domain,
-      source: "database",
     };
   } catch (err) {
     console.error("[zoho] could not read the stored connection:", err);

@@ -15,51 +15,28 @@ import { agentFromSession } from "./auth";
  *     agent_sessions, joined to an active agent. No session means no identity.
  *
  *   * DATABASE_URL absent — one stubbed agent, so the UI can be built and
- *     demoed with nothing but `npm run dev`. Allowed ONLY with fixture data;
- *     see assertSafeToServe.
+ *     demoed with nothing but `npm run dev`. Safe because a live CRM requires
+ *     DATABASE_URL, so this branch can only ever serve fixture data — see the
+ *     invariant note below.
  */
 
-/**
- * The combination that must never ship.
+/*
+ * A note on the combination that used to need guarding.
  *
- * With one Zoho service connection, this app is the only thing deciding who
- * sees which client. A stubbed session means there is no such decision — every
- * visitor is the same agent. Locally that is a convenience. On a deployed URL,
- * with real credentials, it publishes that agent's entire pipeline (names,
- * dates of birth, addresses, enrollment history) to anyone who finds the link.
+ * A stubbed session means every visitor is the same agent. Paired with live CRM
+ * credentials on a public URL, that would publish one agent's whole pipeline —
+ * names, dates of birth, addresses — to anyone with the link. There was a
+ * runtime check here that threw on exactly that.
  *
- * Kept even now that real auth exists, because the stub is still reachable: all
- * it takes is a deploy where DATABASE_URL was forgotten but the Zoho variables
- * were not. That is a plausible mistake, and this turns it into a loud failure
- * instead of a silent disclosure.
+ * It is gone because the combination is now impossible rather than merely
+ * detected. The Zoho refresh token lives only in the database (lib/zohoToken.ts
+ * — there is no environment-variable path), so a live CRM requires
+ * DATABASE_URL. The stub below runs only when DATABASE_URL is absent. The two
+ * cannot co-occur.
+ *
+ * That is a load-bearing invariant, not a coincidence. If an env-var token path
+ * is ever reintroduced, this guard has to come back with it.
  */
-function assertSafeToServe(): void {
-  if (process.env.NODE_ENV !== "production") return;
-  if (dbConfigured()) return;
-  /* With no database, the ONLY way the CRM can be live is a refresh token in
-   * the environment — a token stored in zoho_connection needs the database
-   * this branch has already established is absent. So the dangerous
-   * combination is fully described by these env vars, and this check stays
-   * synchronous rather than dragging a database round trip into every render. */
-  const liveViaEnv = Boolean(
-    process.env.ZOHO_CLIENT_ID &&
-      process.env.ZOHO_CLIENT_SECRET &&
-      process.env.ZOHO_REFRESH_TOKEN,
-  );
-  if (!liveViaEnv) return;
-  if (process.env.ALLOW_STUBBED_AUTH_WITH_LIVE_CRM === "i-understand-this-is-unauthenticated") {
-    return;
-  }
-
-  throw new Error(
-    "Refusing to serve live CRM data with a stubbed session in production. " +
-      "This build has Zoho credentials but no DATABASE_URL, so there are no " +
-      "accounts and every visitor would be treated as the same field agent — " +
-      "able to read that agent's whole pipeline. Set DATABASE_URL and apply " +
-      "db/*.sql, or — only if this deployment is already access-gated — set " +
-      "ALLOW_STUBBED_AUTH_WITH_LIVE_CRM=i-understand-this-is-unauthenticated.",
-  );
-}
 
 /** The stubbed identity, used only in fixture mode. */
 function stubAgent(): AgentIdentity {
@@ -78,7 +55,6 @@ function stubAgent(): AgentIdentity {
  * an agent's own data should use `requireAgent` instead.
  */
 export async function currentAgentOrNull(): Promise<AgentIdentity | null> {
-  assertSafeToServe();
   if (!dbConfigured()) return stubAgent();
   return agentFromSession();
 }

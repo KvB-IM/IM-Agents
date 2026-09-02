@@ -46,7 +46,7 @@ export async function GET() {
           database: dbConfigured(),
           encryptionKey: encryptionConfigured(),
           hint: zohoClientConfigured()
-            ? "Client credentials are set. An admin can connect the CRM from their profile, or set ZOHO_REFRESH_TOKEN."
+            ? "Client credentials are set. An admin can now connect the CRM from their profile."
             : "Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET, then connect from an admin profile.",
         },
     auth: dbConfigured()

@@ -105,8 +105,7 @@ async function fetchAccessToken(): Promise<string> {
   if (!creds) {
     throw new ZohoError(
       500,
-      "The CRM is not connected. An admin can connect it from their profile, or " +
-        "ZOHO_REFRESH_TOKEN can be set in the environment.",
+      "The CRM is not connected. An admin can connect it from their profile.",
     );
   }
 

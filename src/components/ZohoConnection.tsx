@@ -11,14 +11,12 @@ import { Card, CardHeader } from "./ui";
  */
 export default function ZohoConnection({
   connected,
-  source,
   connectedAt,
   scopes,
   lastError,
   status,
 }: {
   connected: boolean;
-  source: "env" | "database" | null;
   connectedAt: string | null;
   scopes: string | null;
   lastError: string | null;
@@ -49,12 +47,6 @@ export default function ZohoConnection({
 
         <dl className="divide-y divide-line">
           <Row label="Status" value={connected ? "Connected" : "Not connected"} />
-          {source ? (
-            <Row
-              label="Token from"
-              value={source === "env" ? "environment variable" : "database"}
-            />
-          ) : null}
           {connectedAt ? <Row label="Connected" value={connectedAt} /> : null}
           {scopes ? <Row label="Scopes" value={scopes} mono /> : null}
         </dl>
@@ -65,20 +57,12 @@ export default function ZohoConnection({
           </p>
         ) : null}
 
-        {source === "env" ? (
-          <p className="text-[12px] leading-relaxed text-muted">
-            A refresh token in the environment takes precedence over anything stored here.
-            Remove <code className="font-mono text-[11px]">ZOHO_REFRESH_TOKEN</code> to manage the
-            connection from this screen instead.
-          </p>
-        ) : (
-          <Link href="/api/auth/zoho/start?returnTo=/me" className="block">
-            <span className="tap inline-flex w-full items-center justify-center gap-2 rounded-xl bg-navy-900 px-4 text-[15px] font-semibold text-white active:bg-navy-950">
-              <Link2 size={16} aria-hidden />
-              {connected ? "Reconnect the CRM" : "Connect the CRM"}
-            </span>
-          </Link>
-        )}
+        <Link href="/api/auth/zoho/start?returnTo=/me" className="block">
+          <span className="tap inline-flex w-full items-center justify-center gap-2 rounded-xl bg-navy-900 px-4 text-[15px] font-semibold text-white active:bg-navy-950">
+            <Link2 size={16} aria-hidden />
+            {connected ? "Reconnect the CRM" : "Connect the CRM"}
+          </span>
+        </Link>
       </div>
     </Card>
   );
