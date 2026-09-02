@@ -2,7 +2,7 @@
 
 import { Check } from "lucide-react";
 import type { QuotedPlan } from "@/lib/types";
-import { money, moneyExact, metalClass } from "@/lib/format";
+import { money, metalClass } from "@/lib/format";
 
 /**
  * One quoted plan.
@@ -49,7 +49,10 @@ export default function PlanCard({
               <span className="text-[11px] font-medium text-success">HSA</span>
             ) : null}
           </div>
-          <p className="mt-1.5 text-[15px] font-semibold leading-tight text-navy-900">
+          <p
+            className="mt-1.5 line-clamp-2 text-[15px] font-semibold leading-tight text-navy-900"
+            title={plan.planName}
+          >
             {plan.planName}
           </p>
           <p className="text-[13px] text-muted">{plan.carrier}</p>
@@ -81,11 +84,11 @@ export default function PlanCard({
         </div>
         <div className="flex justify-between">
           <dt className="text-muted">Deductible</dt>
-          <dd className="font-medium text-navy-800">{moneyExact(plan.deductible)}</dd>
+          <dd className="font-medium text-navy-800">{money(plan.deductible)}</dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-muted">Max OOP</dt>
-          <dd className="font-medium text-navy-800">{moneyExact(plan.moop)}</dd>
+          <dd className="font-medium text-navy-800">{money(plan.moop)}</dd>
         </div>
       </dl>
     </button>

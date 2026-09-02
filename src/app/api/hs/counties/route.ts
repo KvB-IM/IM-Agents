@@ -28,9 +28,16 @@ export async function GET(request: NextRequest) {
       `/v1/reference/counties?zip_code=${encodeURIComponent(zip)}`,
     )) as { counties?: Array<{ fips_code?: string; name?: string; state?: string }> };
 
+    /* HealthSherpa returns "Maricopa County" — with the word. The UI renders
+     * "{name} County, {state}", which turned that into "Maricopa County
+     * County, AZ". Stripping the suffix here rather than in the component
+     * keeps every consumer consistent, and matches what the fixtures return.
+     *
+     * Louisiana parishes and Alaska boroughs carry their own suffixes, so this
+     * only removes a trailing "County" and leaves those alone. */
     const counties: County[] = (data.counties ?? []).map((c) => ({
       fipsCode: String(c.fips_code ?? ""),
-      name: String(c.name ?? ""),
+      name: String(c.name ?? "").replace(/\s+County$/i, "").trim(),
       state: String(c.state ?? "").toUpperCase(),
     })).filter((c) => c.fipsCode && c.state);
 

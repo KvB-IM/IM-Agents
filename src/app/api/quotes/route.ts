@@ -25,6 +25,98 @@ function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
+/* ── HealthSherpa's plan shape ─────────────────────────────────────────────
+ * Written against a real response, not the docs. Two things the first pass got
+ * wrong by guessing flat field names: the plan is NESTED under `pricing`,
+ * `details` and `issuer`, and every monetary value is a STRING. Reading
+ * `p.premium` gave undefined, `Number(undefined)` gave NaN, and the UI
+ * rendered a page of $0 plans that looked plausible enough to ship.
+ */
+interface HsPlan {
+  plan_id?: string;
+  name?: string;
+  display_name?: string;
+  api_enrollable?: boolean;
+  issuer?: { issuer_id?: string; name?: string };
+  network?: { type?: string };
+  pricing?: {
+    gross_premium?: string;
+    net_premium?: string;
+    subsidy_applied?: string;
+    max_aptc?: string | null;
+  };
+  details?: {
+    metal_level?: string;
+    plan_type?: string;
+    hsa_eligible?: boolean;
+    deductible_individual?: string;
+    deductible_family?: string;
+    moop_individual?: string;
+    moop_family?: string;
+    csr_level?: string | null;
+    is_standardized?: boolean;
+  };
+}
+
+/** Money arrives as a string like "395.66". Guard before coercing: Number("")
+ *  is 0 and Number(undefined) is NaN, and both would render as a real price. */
+function money(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Humanise a metal level.
+ *
+ * The API returns `expanded_bronze`, not `Bronze` — an underscored enum that
+ * would have been shown to a client verbatim. "Expanded Bronze" is a real ACA
+ * category (a bronze plan meeting the higher actuarial band), so it is spelled
+ * out rather than collapsed into "Bronze".
+ */
+function metalLabel(raw: string | undefined): string {
+  if (!raw) return "";
+  return raw
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function normalizePlan(p: HsPlan): QuotedPlan {
+  const pricing = p.pricing ?? {};
+  const details = p.details ?? {};
+
+  const gross = money(pricing.gross_premium) ?? 0;
+  const subsidy = money(pricing.subsidy_applied) ?? 0;
+  /* Prefer HealthSherpa's own net figure. It is the number the client will be
+   * billed, and recomputing gross minus subsidy risks disagreeing with the
+   * carrier over a rounding cent. Fall back only if it is absent. */
+  const net = money(pricing.net_premium) ?? Math.max(0, gross - subsidy);
+
+  return {
+    planId: String(p.plan_id ?? ""),
+    /* `display_name` carries the carrier ("Oscar Health Plan Bronze Simple");
+     * `name` is just the plan ("Bronze Simple"). The card shows the carrier on
+     * its own line, so the bare name avoids saying it twice. */
+    planName: String(p.name ?? p.display_name ?? ""),
+    carrier: String(p.issuer?.name ?? ""),
+    metalLevel: metalLabel(details.metal_level),
+    /* plan_id IS the HIOS plan id (e.g. 13877AZ0070072) and issuer_id its
+     * first five digits — the two fields the Jot needs. */
+    planHiosId: String(p.plan_id ?? ""),
+    carrierHiosId: String(p.issuer?.issuer_id ?? ""),
+    premium: gross,
+    aptc: subsidy,
+    netPremium: net,
+    /* Individual figures: the card is read to one person at a kitchen table,
+     * and the family numbers are double the width for the same column. */
+    deductible: money(details.deductible_individual),
+    moop: money(details.moop_individual),
+    planType: (details.plan_type ?? p.network?.type ?? "").toUpperCase(),
+    hsaEligible: details.hsa_eligible === true,
+  };
+}
+
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -121,27 +213,9 @@ export async function POST(request: NextRequest) {
     const data = (await hsFetch("/v1/quotes", {
       method: "POST",
       body: JSON.stringify(quoteRequest),
-    })) as { plans?: Array<Record<string, unknown>> };
+    })) as { plans?: HsPlan[] };
 
-    const plans: QuotedPlan[] = (data.plans ?? []).map((p) => {
-      const premium = Number(p.premium ?? 0);
-      const aptc = Number(p.applied_aptc ?? p.aptc ?? 0);
-      return {
-        planId: String(p.id ?? p.plan_id ?? ""),
-        planName: String(p.name ?? p.plan_name ?? ""),
-        carrier: String(p.carrier_name ?? p.carrier ?? ""),
-        metalLevel: String(p.metal_level ?? ""),
-        planHiosId: String(p.hios_plan_id ?? p.plan_hios_id ?? ""),
-        carrierHiosId: String(p.hios_issuer_id ?? p.carrier_hios_id ?? ""),
-        premium,
-        aptc,
-        netPremium: Number(p.premium_with_credit ?? Math.max(0, premium - aptc)),
-        deductible: p.deductible === undefined ? null : Number(p.deductible),
-        moop: p.max_out_of_pocket === undefined ? null : Number(p.max_out_of_pocket),
-        planType: String(p.plan_type ?? ""),
-        hsaEligible: p.hsa_eligible === true,
-      };
-    });
+    const plans: QuotedPlan[] = (data.plans ?? []).map(normalizePlan);
 
     return NextResponse.json({ plans, fixture: false });
   } catch (err) {
