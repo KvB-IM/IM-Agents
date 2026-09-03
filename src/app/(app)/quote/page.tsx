@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus, Search, AlertCircle, ArrowRight } from "lucide-react";
+import { UserPlus, Search, AlertCircle, ArrowRight, X } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
 import PlanCard from "@/components/PlanCard";
@@ -21,7 +21,7 @@ import type { County, QuotedPlan } from "@/lib/types";
  */
 export default function QuotePage() {
   const router = useRouter();
-  const { draft, patch, patchPerson, addPerson, removePerson, loaded } = useDraft();
+  const { draft, patch, patchPerson, addPerson, removePerson, reset, loaded } = useDraft();
 
   const primaryName = (() => {
     const p = draft.people.find((x) => x.relation === "primary") ?? draft.people[0];
@@ -33,6 +33,21 @@ export default function QuotePage() {
   const [plans, setPlans] = useState<QuotedPlan[] | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
+
+  /**
+   * Is there a client's work sitting on this page?
+   *
+   * There was no way to put a quote down. An agent who resumed one client's
+   * application and then needed to quote somebody else had that first client's
+   * ZIP, household and plan still loaded, with nothing to clear it — the only
+   * escape was closing the browser tab, which is also how you lose the draft.
+   */
+  const hasWork = Boolean(
+    draft.zip ||
+      draft.selectedPlan ||
+      draft.people.some((p) => p.firstName || p.lastName || p.dateOfBirth),
+  );
 
   // ── County lookup ────────────────────────────────────────────────────────
   // Fires as soon as the ZIP is five digits. A ZIP can span several counties
@@ -108,10 +123,59 @@ export default function QuotePage() {
   return (
     <div className="space-y-4">
       <Inset>
-        <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Run a quote</h1>
-        <p className="mt-0.5 text-[13px] text-muted">
-          ACA on-exchange, {monthYear(draft.requestedEffective)} effective.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Run a quote</h1>
+            <p className="mt-0.5 text-[13px] text-muted">
+              {primaryName
+                ? `For ${primaryName} · ${monthYear(draft.requestedEffective)} effective`
+                : `ACA on-exchange, ${monthYear(draft.requestedEffective)} effective.`}
+            </p>
+          </div>
+          {hasWork ? (
+            <button
+              type="button"
+              onClick={() => setConfirmNew(true)}
+              aria-label="Close this quote and start a new one"
+              className="tap -mr-1 -mt-1 flex w-10 shrink-0 items-center justify-center rounded-lg text-muted active:bg-navy-50"
+            >
+              <X size={20} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+
+        {/* Two taps, and it names the client — the quote and the application
+            are one draft, so clearing this clears both. */}
+        {confirmNew ? (
+          <div className="mt-3 rounded-xl bg-error/5 px-3.5 py-3 ring-1 ring-error/20">
+            <p className="text-[13px] font-medium text-navy-900">Close this quote?</p>
+            <p className="mt-0.5 text-[12px] leading-snug text-muted">
+              Everything captured for {primaryName || "this client"} is cleared from this device,
+              including anything already typed into the application. It cannot be recovered.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setConfirmNew(false)}
+                className="!w-auto flex-1"
+              >
+                Keep it
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  reset();
+                  setPlans(null);
+                  setError(null);
+                  setConfirmNew(false);
+                }}
+                className="!w-auto flex-1"
+              >
+                Start a new quote
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Inset>
 
       {/* ── Where ──────────────────────────────────────────────────────── */}

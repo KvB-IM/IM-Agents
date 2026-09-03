@@ -257,15 +257,74 @@ function Capture() {
 
   // ── No plan selected ─────────────────────────────────────────────────────
   if (!draft.selectedPlan) {
+    /* Whether anything has actually been captured yet. Without this the tab
+     * said "Quote first" to an agent who had already entered a household, its
+     * dates of birth and an income on the quote page — the data was saved and
+     * the screen implied it was not, which is the worst possible thing for a
+     * form to say to someone who was interrupted. */
+    const capturedName = [primary?.firstName, primary?.lastName].filter(Boolean).join(" ");
+    const hasWork = Boolean(
+      draft.zip || capturedName || draft.people.some((p) => p.dateOfBirth) ||
+        draft.householdIncome !== null,
+    );
+
+    if (!hasWork) {
+      return (
+        <div className="space-y-4">
+          <Empty
+            title="Quote first"
+            body="The application needs a plan on it. Run a quote and pick one, then come back."
+          />
+          <Inset>
+            <Link href="/quote" className="block">
+              <Button variant="secondary">Go to quote</Button>
+            </Link>
+          </Inset>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
-        <Empty
-          title="Quote first"
-          body="The application needs a plan on it. Run a quote and pick one, then come back."
-        />
+        <Inset>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gold-600">
+            Unfinished application
+          </p>
+          <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight text-navy-900">
+            {capturedName || "No name captured yet"}
+          </h1>
+          <p className="mt-1 text-[13px] leading-snug text-muted">
+            Saved on this device. It needs a plan before the rest of the application can be
+            filled in.
+          </p>
+        </Inset>
+
+        <Card>
+          <CardHeader title="Captured so far" />
+          <dl className="divide-y divide-line px-4 pb-2">
+            {[
+              ["People on the form", String(draft.people.length)],
+              ["County", draft.county ? `${draft.county.name}, ${draft.county.state}` : "—"],
+              ["Effective", monthYear(draft.requestedEffective)],
+              [
+                "Household income",
+                draft.householdIncome === null ? "—" : money(draft.householdIncome),
+              ],
+              ["Plan", "Not chosen yet"],
+            ].map(([k, v]) => (
+              <div key={k} className="flex items-baseline justify-between gap-4 py-2.5">
+                <dt className="text-[13px] text-muted">{k}</dt>
+                <dd className="text-right text-[13px] font-medium text-navy-900">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+
         <Inset>
           <Link href="/quote" className="block">
-            <Button variant="secondary">Go to quote</Button>
+            <Button>
+              Choose a plan for {capturedName || "this household"}
+            </Button>
           </Link>
         </Inset>
       </div>
