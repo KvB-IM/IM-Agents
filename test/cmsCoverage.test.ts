@@ -97,3 +97,78 @@ test("labels never claim more than CMS said", () => {
   // Crucially not "Not covered".
   assert.equal(statusLabel("unknown"), "Not published");
 });
+
+/* ── The canary rule ────────────────────────────────────────────────────────
+ * CMS reports anything absent from a carrier's formulary file as NotCovered,
+ * and files vary wildly in completeness. All 22 BlueCross BlueShield of South
+ * Carolina plans call metFORMIN 500 mg NotCovered — along with every metformin
+ * product except the XR 750 mg. Believing that would tell a diabetic client
+ * their medication is excluded by half the market. */
+
+import {
+  CANARY_DRUGS,
+  MIN_CANARIES_COVERED,
+  unreliablePlans,
+} from "../src/lib/cmsCoverage.ts";
+
+const withCanaries = (
+  planId: string,
+  canaryStatuses: CoverageStatus[],
+  extra: Record<string, CoverageStatus> = {},
+) => {
+  const rows: CoverageRow[] = CANARY_DRUGS.map((d, i) => ({
+    planId,
+    itemId: d.rxcui,
+    status: canaryStatuses[i] ?? "unknown",
+  }));
+  for (const [itemId, status] of Object.entries(extra)) rows.push({ planId, itemId, status });
+  return rows;
+};
+
+test("a plan that lists the common generics is trusted", () => {
+  const index = indexCoverage(withCanaries("good", ["covered", "covered", "covered"]));
+  assert.deepEqual([...unreliablePlans(index, ["good"])], []);
+});
+
+test("BCBS South Carolina's sparse formulary is flagged", () => {
+  // Real measured shape: atorvastatin listed, metformin and lisinopril not.
+  const index = indexCoverage(
+    withCanaries("26065SC0670003", ["not_covered", "covered", "not_covered"]),
+  );
+  assert.deepEqual([...unreliablePlans(index, ["26065SC0670003"])], ["26065SC0670003"]);
+});
+
+test("two of three canaries is enough to be believed", () => {
+  assert.equal(MIN_CANARIES_COVERED, 2);
+  const index = indexCoverage(withCanaries("ok", ["covered", "covered", "not_covered"]));
+  assert.deepEqual([...unreliablePlans(index, ["ok"])], []);
+});
+
+test("a generic-covered canary counts as listed", () => {
+  const index = indexCoverage(withCanaries("g", ["generic", "generic", "not_covered"]));
+  assert.deepEqual([...unreliablePlans(index, ["g"])], []);
+});
+
+test("a plan that published NOTHING is not called unreliable — it is unknown", () => {
+  /* Otherwise "no data" acquires a second, more alarming name for the same
+     situation. Georgia's DataNotProvided plans land here. */
+  const index = indexCoverage(withCanaries("silent", ["unknown", "unknown", "unknown"]));
+  assert.deepEqual([...unreliablePlans(index, ["silent"])], []);
+  const absent = indexCoverage([]);
+  assert.deepEqual([...unreliablePlans(absent, ["never-answered"])], []);
+});
+
+test("an unreliable answer outranks a tick, so the filter cannot include it", () => {
+  assert.equal(combineStatuses(["covered", "unreliable"]), "unreliable");
+  assert.equal(combineStatuses(["unreliable", "unknown"]), "unreliable");
+  // A real exclusion from a trustworthy plan still wins.
+  assert.equal(combineStatuses(["unreliable", "not_covered"]), "not_covered");
+});
+
+test("the unreliable label blames the carrier's list, not the drug", () => {
+  const label = statusLabel("unreliable");
+  assert.match(label, /list/i);
+  // It must not read as a refusal.
+  assert.ok(!/not on this plan/i.test(label));
+  assert.notEqual(label, statusLabel("not_covered"));
+});

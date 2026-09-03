@@ -14,6 +14,8 @@ import {
   indexCoverage,
   statusFor,
   combineStatuses,
+  unreliablePlans,
+  CANARY_RXCUIS,
   type CoverageRow,
   type CoverageStatus,
 } from "@/lib/cmsCoverage.ts";
@@ -128,7 +130,9 @@ export default function QuotePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             planIds: plans.map((p) => p.planHiosId).filter(Boolean),
-            rxcuis,
+            /* The canaries ride along, so each plan's formulary can be
+               sanity-checked. They cost no extra call. */
+            rxcuis: rxcuis.length > 0 ? [...new Set([...rxcuis, ...CANARY_RXCUIS])] : [],
             npis,
             year: Number(draft.requestedEffective.slice(0, 4)),
           }),
@@ -161,15 +165,29 @@ export default function QuotePage() {
   const providerIndex = indexCoverage(coverageRows.providers);
   const checking = checkedDrugs.length + checkedProviders.length > 0;
 
+  /* Plans whose own formulary is too sparse to quote a refusal from. */
+  const untrusted = unreliablePlans(
+    drugIndex,
+    (plans ?? []).map((p) => p.planHiosId),
+  );
+
   /** The badges for one plan, in the order the agent added them. */
   const coverageFor = (planHiosId: string): CoverageItem[] =>
     checking
       ? [
-          ...checkedDrugs.map((d) => ({
-            kind: "drug" as const,
-            label: d.label,
-            status: statusFor(drugIndex, planHiosId, d.rxcui),
-          })),
+          ...checkedDrugs.map((d) => {
+            const status = statusFor(drugIndex, planHiosId, d.rxcui);
+            return {
+              kind: "drug" as const,
+              label: d.label,
+              /* A refusal from a plan that does not list the commonest
+                 generics is not evidence about this client's drug. */
+              status:
+                untrusted.has(planHiosId) && status === "not_covered"
+                  ? ("unreliable" as CoverageStatus)
+                  : status,
+            };
+          }),
           ...checkedProviders.map((pr) => ({
             kind: "provider" as const,
             label: pr.label,
@@ -433,16 +451,19 @@ export default function QuotePage() {
               </div>
             ) : null}
 
-            {shown.map((plan) => (
+            {/* Padding on the CONTAINER, not margins on the cards: a `w-full`
+                card plus `mx-4` measures wider than the viewport. */}
+            <div className="space-y-3 px-4 sm:px-0">
+              {shown.map((plan) => (
               <PlanCard
-                className="mx-4 sm:mx-0"
                 key={plan.planId}
                 plan={plan}
                 selected={draft.selectedPlan?.planId === plan.planId}
                 onSelect={() => patch({ selectedPlan: plan })}
                 coverage={coverageFor(plan.planHiosId)}
               />
-            ))}
+              ))}
+            </div>
 
             {draft.selectedPlan ? (
               <ActionBar>

@@ -37,7 +37,85 @@ export type CoverageStatus =
   /** Explicitly excluded. */
   | "not_covered"
   /** The plan published nothing. NOT the same as excluded. */
-  | "unknown";
+  | "unknown"
+  /**
+   * The plan's drug file is too sparse to answer from — see CANARY_DRUGS.
+   * Its "NotCovered" answers cannot be repeated to a client.
+   */
+  | "unreliable";
+
+/**
+ * Drugs every real ACA formulary carries, used to test whether a plan's data
+ * can be trusted at all.
+ *
+ * ── The problem these solve ──────────────────────────────────────────────
+ * CMS reports anything absent from a carrier's formulary file as `NotCovered`,
+ * and carriers file with wildly different completeness. Measured on live 2026
+ * data for South Carolina ZIP 29803: all 22 BlueCross BlueShield of South
+ * Carolina plans report metFORMIN 500 mg as NotCovered — and every other
+ * metformin product too, except metFORMIN XR 750 mg. No plan on earth covers
+ * only the extended-release 750 mg and excludes immediate-release 500 mg, the
+ * most-dispensed form in the country. Their file is sparse, and CMS cannot tell
+ * the difference between "excluded" and "not listed".
+ *
+ * Meanwhile the other two South Carolina issuers, and every Arizona plan,
+ * answer sensibly for the same drugs.
+ *
+ * So a plan is asked about these three alongside whatever the agent typed. They
+ * are the three most-dispensed generics in the United States; a plan that does
+ * not list at least two of them has not published a usable formulary, and its
+ * refusals are downgraded to `unreliable` rather than shown to a client as
+ * "not covered". Measured separation on live data:
+ *
+ *   Arizona, 20 plans      3 of 3 canaries      trusted
+ *   Georgia, 18 plans      3 of 3               trusted
+ *   Georgia, 2 plans       0 of 3               already DataNotProvided
+ *   BCBS South Carolina    1 of 3               FLAGGED
+ *   Other SC issuers       3 of 3               trusted
+ *
+ * They cost nothing: `drugs` is not the batched parameter, so they ride along
+ * in requests that were being made anyway.
+ */
+export const CANARY_DRUGS: ReadonlyArray<{ rxcui: string; label: string }> = [
+  { rxcui: "861007", label: "metformin 500 mg" },
+  { rxcui: "617312", label: "atorvastatin 10 mg" },
+  { rxcui: "314077", label: "lisinopril 20 mg" },
+];
+
+/** How many canaries a plan must list before its refusals are believed. */
+export const MIN_CANARIES_COVERED = 2;
+
+export const CANARY_RXCUIS: readonly string[] = CANARY_DRUGS.map((d) => d.rxcui);
+
+/**
+ * Which plans have a formulary too sparse to quote from.
+ *
+ * A plan with NO canary rows at all is NOT flagged: it published nothing, which
+ * `unknown` already says correctly, and calling that "unreliable" would be a
+ * second name for the same thing.
+ */
+export function unreliablePlans(
+  index: Map<string, Map<string, CoverageStatus>>,
+  planIds: string[],
+): Set<string> {
+  const flagged = new Set<string>();
+  for (const planId of planIds) {
+    const items = index.get(planId);
+    if (!items) continue;
+
+    let answered = 0;
+    let listed = 0;
+    for (const { rxcui } of CANARY_DRUGS) {
+      const status = items.get(rxcui);
+      if (status === undefined || status === "unknown") continue;
+      answered++;
+      if (status === "covered" || status === "generic") listed++;
+    }
+    // Only judge a plan that actually answered about the canaries.
+    if (answered > 0 && listed < MIN_CANARIES_COVERED) flagged.add(planId);
+  }
+  return flagged;
+}
 
 /**
  * Split plan ids into request-sized batches.
@@ -129,6 +207,10 @@ export function statusFor(
 export function combineStatuses(statuses: CoverageStatus[]): CoverageStatus {
   if (statuses.length === 0) return "unknown";
   if (statuses.includes("not_covered")) return "not_covered";
+  /* Both mean "no usable answer", and both must outrank a tick so that a
+   * "covers everything" filter cannot include a plan that never really said
+   * so. `unreliable` is reported first because it has a more specific cause. */
+  if (statuses.includes("unreliable")) return "unreliable";
   if (statuses.includes("unknown")) return "unknown";
   if (statuses.includes("generic")) return "generic";
   return "covered";
@@ -143,6 +225,10 @@ export function statusLabel(status: CoverageStatus): string {
       return "Generic only";
     case "not_covered":
       return "Not on this plan";
+    case "unreliable":
+      /* Deliberately about the CARRIER'S LIST, not about the drug. The plan
+       * said "not covered" and we do not believe it. */
+      return "Carrier's drug list is incomplete";
     default:
       return "Not published";
   }

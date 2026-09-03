@@ -173,7 +173,10 @@ export async function searchDrugs(query: string, year: number): Promise<DrugHit[
     fullName: String(d.full_name ?? ""),
   }));
 
-  return rankDrugs(hits, q, 40);
+  /* Ranked, then all of them: the list scrolls, and a cap here is invisible.
+   * At 40 an "insulin" search silently withheld 100 of the 140 products in the
+   * catalogue, which looked like a search that only half worked. */
+  return rankDrugs(hits, q, MAX_CANDIDATES);
 }
 
 /** Fixed by CMS: `/drugs/search` returns 25 rows whatever you ask for. */

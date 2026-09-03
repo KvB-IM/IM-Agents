@@ -198,6 +198,9 @@ function CoverageBadge({ item }: { item: CoverageItem }) {
     generic: "bg-gold-100 text-gold-600 ring-gold-500/30",
     not_covered: "bg-error/10 text-error ring-error/25",
     unknown: "bg-navy-50 text-muted ring-line",
+    /* Grey, not red. The plan said "not covered" and its own formulary is too
+     * sparse to believe, so this must not look like a refusal. */
+    unreliable: "bg-navy-50 text-muted ring-line",
   }[item.status];
 
   const mark = {
@@ -205,6 +208,7 @@ function CoverageBadge({ item }: { item: CoverageItem }) {
     generic: "≈",
     not_covered: "✕",
     unknown: "?",
+    unreliable: "?",
   }[item.status];
 
   return (
