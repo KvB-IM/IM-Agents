@@ -50,6 +50,7 @@ export default function CoverageCheck({
   onChange,
   busy,
   error,
+  yearUsed,
 }: {
   year: number;
   zip: string;
@@ -58,6 +59,8 @@ export default function CoverageCheck({
   onChange: (next: { drugs: CheckedDrug[]; providers: CheckedProvider[] }) => void;
   busy: boolean;
   error: string | null;
+  /** The plan year CMS answered from, once a check has run. */
+  yearUsed: number | null;
 }) {
   const [mode, setMode] = useState<"drug" | "provider">("drug");
   const [query, setQuery] = useState("");
@@ -66,6 +69,7 @@ export default function CoverageCheck({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [drugHits, setDrugHits] = useState<DrugHit[] | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [searchYearUsed, setSearchYearUsed] = useState<number | null>(null);
   const [providerHits, setProviderHits] = useState<ProviderHit[] | null>(null);
 
   async function run(term?: string) {
@@ -91,12 +95,14 @@ export default function CoverageCheck({
         drugs?: DrugHit[];
         providers?: ProviderHit[];
         suggestions?: string[];
+        yearUsed?: number;
         error?: string;
       };
       if (!res.ok) {
         setSearchError(data.error ?? "That search failed.");
         return;
       }
+      setSearchYearUsed(data.yearUsed ?? null);
       if (mode === "drug") {
         setDrugHits(data.drugs ?? []);
         setSuggestions(data.suggestions ?? []);
@@ -318,6 +324,22 @@ export default function CoverageCheck({
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {/* Said plainly rather than hidden. CMS publishes formularies for a
+            plan year, and during open enrollment an agent quoting a January
+            effective date is asking about a year that does not exist yet — so
+            the answer comes from the current year's lists, and passing that off
+            as next year's would be the quiet kind of wrong. */}
+        {(yearUsed ?? searchYearUsed) !== null && (yearUsed ?? searchYearUsed) !== year ? (
+          <p className="flex items-start gap-2 rounded-xl bg-navy-50 px-3 py-2.5 text-[12px] leading-snug text-navy-900 ring-1 ring-navy-100">
+            <AlertCircle size={14} className="mt-0.5 shrink-0 text-navy-600" aria-hidden />
+            <span>
+              CMS has not published {year} drug and network lists yet, so these answers come from{" "}
+              {yearUsed ?? searchYearUsed}. Most carriers carry the same drugs year to year, but
+              check with the carrier before promising anything for {year}.
+            </span>
+          </p>
         ) : null}
 
         {busy ? (

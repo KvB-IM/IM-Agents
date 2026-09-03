@@ -41,21 +41,28 @@ export async function GET(request: NextRequest) {
 
   try {
     if (kind === "drug") {
-      const drugs = await searchDrugs(q, year);
+      const { drugs, yearUsed } = await searchDrugs(q, year);
       /* Only on an empty result, and only for drugs. CMS does not tolerate a
        * typo — or reliably a partial word — so an empty search is far more
        * often a spelling problem than a drug that is genuinely absent. The
        * suggestions are returned for the AGENT to pick: see lib/rxnorm.ts for
        * why nothing is substituted automatically. */
       const suggestions = drugs.length === 0 ? await spellingSuggestions(q) : [];
-      return NextResponse.json({ drugs, suggestions });
+      /* `yearUsed` differs from `year` when CMS has not published the plan
+         year yet — normal for a January effective date during open enrollment.
+         Passed on so the UI can say which year it answered from. */
+      return NextResponse.json({ drugs, suggestions, yearUsed });
     }
     if (kind === "provider") {
       const zip = params.get("zip") ?? "";
       const type = params.get("type") === "Facility" ? "Facility" : "Individual";
-      return NextResponse.json({
-        providers: await searchProviders(q, zip, type as ProviderKind, year),
-      });
+      const { providers, yearUsed } = await searchProviders(
+        q,
+        zip,
+        type as ProviderKind,
+        year,
+      );
+      return NextResponse.json({ providers, yearUsed });
     }
     return NextResponse.json({ error: "kind must be drug or provider." }, { status: 400 });
   } catch (err) {

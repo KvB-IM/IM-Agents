@@ -51,8 +51,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { drugs, providers } = await fetchCoverage(planIds, rxcuis, npis, year);
-    return NextResponse.json({ drugs, providers, plansAsked: planIds.length });
+    const { drugs, providers, yearUsed } = await fetchCoverage(planIds, rxcuis, npis, year);
+    /* `yearUsed` differs from `year` when CMS has not published that plan year
+       yet. The UI says so rather than passing off last year's formularies as
+       this year's. */
+    return NextResponse.json({ drugs, providers, yearUsed, plansAsked: planIds.length });
   } catch (err) {
     if (err instanceof CmsError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.status });

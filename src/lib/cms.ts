@@ -39,6 +39,65 @@ export class CmsError extends Error {
   }
 }
 
+/**
+ * CMS rejected the plan year: it has not published that year's data.
+ *
+ * Its own subclass because it is the one CMS error with a sensible recovery —
+ * ask the previous year and say so — rather than something to report and stop.
+ */
+export class UnsupportedYearError extends CmsError {
+  constructor(detail?: string) {
+    super(422, "CMS has not published data for that plan year yet.", detail);
+    this.name = "UnsupportedYearError";
+  }
+}
+
+/**
+ * Plan years CMS has told us it does not have.
+ *
+ * Remembered so the fallback costs one wasted call per hour rather than one per
+ * search, and expiring so that the day CMS publishes 2027 the app picks it up
+ * on its own — the alternative is a constant nobody remembers to change, in the
+ * one month of the year when it matters most.
+ */
+const unsupportedYears = new Map<number, number>();
+const YEAR_MEMO_MS = 60 * 60 * 1000;
+
+function knownUnsupported(year: number): boolean {
+  const at = unsupportedYears.get(year);
+  if (at === undefined) return false;
+  if (Date.now() - at > YEAR_MEMO_MS) {
+    unsupportedYears.delete(year);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Run a lookup for `year`, falling back one year if CMS has not published it.
+ *
+ * An agent quoting a January effective date during open enrollment is asking
+ * about a plan year whose formularies do not exist yet — which is the normal
+ * case in November and December, not an edge case. One year back is as far as
+ * this goes: formularies change annually and a two-year-old answer is not worth
+ * showing. The year actually used comes back so the UI can say which it was.
+ */
+async function withYearFallback<T>(
+  year: number,
+  run: (y: number) => Promise<T>,
+): Promise<{ result: T; yearUsed: number }> {
+  if (!knownUnsupported(year)) {
+    try {
+      return { result: await run(year), yearUsed: year };
+    } catch (err) {
+      if (!(err instanceof UnsupportedYearError)) throw err;
+      unsupportedYears.set(year, Date.now());
+      console.warn(`[cms] plan year ${year} is not published yet; falling back to ${year - 1}`);
+    }
+  }
+  return { result: await run(year - 1), yearUsed: year - 1 };
+}
+
 export function cmsConfigured(): boolean {
   return Boolean(process.env.CMS_API_KEY);
 }
@@ -93,11 +152,7 @@ async function cmsGet<T>(path: string, params: Record<string, string>): Promise<
      * exist rather than that something broke. */
     const detail = await res.text().catch(() => "");
     if (/market year/i.test(detail)) {
-      throw new CmsError(
-        422,
-        "CMS has not published formulary and network data for that plan year yet.",
-        detail.slice(0, 200),
-      );
+      throw new UnsupportedYearError(detail.slice(0, 200));
     }
     console.error(`[cms] 400 on ${path}: ${detail.slice(0, 200)}`);
     throw new CmsError(502, "The coverage lookup was rejected.");
@@ -139,10 +194,18 @@ export interface DrugHit {
  * Its first page for "metformin" is ACTOPLUS MET, metFORMIN/Pioglitazone,
  * JANUMET. See lib/drugRank.ts.
  */
-export async function searchDrugs(query: string, year: number): Promise<DrugHit[]> {
+export async function searchDrugs(
+  query: string,
+  year: number,
+): Promise<{ drugs: DrugHit[]; yearUsed: number }> {
   const q = query.trim();
-  if (q.length < 3) return [];
+  if (q.length < 3) return { drugs: [], yearUsed: year };
 
+  const { result, yearUsed } = await withYearFallback(year, (y) => searchDrugsForYear(q, y));
+  return { drugs: result, yearUsed };
+}
+
+async function searchDrugsForYear(q: string, year: number): Promise<DrugHit[]> {
   const collected: RawDrug[] = [];
   let total = Infinity;
 
@@ -212,11 +275,23 @@ export async function searchProviders(
   zip: string,
   kind: ProviderKind,
   year: number,
-): Promise<ProviderHit[]> {
+): Promise<{ providers: ProviderHit[]; yearUsed: number }> {
   const q = query.trim();
-  if (q.length < 3) return [];
-  if (!/^\d{5}$/.test(zip)) return [];
+  if (q.length < 3) return { providers: [], yearUsed: year };
+  if (!/^\d{5}$/.test(zip)) return { providers: [], yearUsed: year };
 
+  const { result, yearUsed } = await withYearFallback(year, (y) =>
+    searchProvidersForYear(q, zip, kind, y),
+  );
+  return { providers: result, yearUsed };
+}
+
+async function searchProvidersForYear(
+  q: string,
+  zip: string,
+  kind: ProviderKind,
+  year: number,
+): Promise<ProviderHit[]> {
   const data = await cmsGet<{ total?: number; providers?: RawProviderResult[] }>(
     "/providers/search",
     { q, zipcode: zip, type: kind, year: String(year) },
@@ -252,6 +327,18 @@ interface RawProviderResult {
  * tripped, and this already sits behind an agent tapping a button.
  */
 export async function fetchCoverage(
+  planIds: string[],
+  rxcuis: string[],
+  npis: string[],
+  year: number,
+): Promise<{ drugs: CoverageRow[]; providers: CoverageRow[]; yearUsed: number }> {
+  const { result, yearUsed } = await withYearFallback(year, (y) =>
+    fetchCoverageForYear(planIds, rxcuis, npis, y),
+  );
+  return { ...result, yearUsed };
+}
+
+async function fetchCoverageForYear(
   planIds: string[],
   rxcuis: string[],
   npis: string[],

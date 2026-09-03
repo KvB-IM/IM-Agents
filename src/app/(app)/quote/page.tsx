@@ -78,6 +78,10 @@ export default function QuotePage() {
     providers: CoverageRow[];
   }>({ drugs: [], providers: [] });
   const [coverageBusy, setCoverageBusy] = useState(false);
+  /* Which plan year CMS actually answered from. Differs from the quote's own
+   * year when CMS has not published it yet — normal for a January effective
+   * date during open enrollment. */
+  const [coverageYearUsed, setCoverageYearUsed] = useState<number | null>(null);
   const [coverageError, setCoverageError] = useState<string | null>(null);
   /* "Only plans that work for this client." Off by default — it hides plans,
    * and a filter that hides plans has to be the agent's choice. */
@@ -116,6 +120,7 @@ export default function QuotePage() {
     if (!plans || plans.length === 0 || (rxcuis.length === 0 && npis.length === 0)) {
       setCoverageRows({ drugs: [], providers: [] });
       setCoverageError(null);
+      setCoverageYearUsed(null);
       return;
     }
 
@@ -140,6 +145,7 @@ export default function QuotePage() {
         const data = (await res.json()) as {
           drugs?: CoverageRow[];
           providers?: CoverageRow[];
+          yearUsed?: number;
           error?: string;
         };
         if (cancelled) return;
@@ -149,6 +155,7 @@ export default function QuotePage() {
           return;
         }
         setCoverageRows({ drugs: data.drugs ?? [], providers: data.providers ?? [] });
+        setCoverageYearUsed(data.yearUsed ?? null);
       } catch {
         if (!cancelled) setCoverageError("No connection, so coverage could not be checked.");
       } finally {
@@ -356,6 +363,7 @@ export default function QuotePage() {
             }}
             busy={coverageBusy}
             error={coverageError}
+            yearUsed={coverageYearUsed}
           />
         ) : null}
 
