@@ -79,6 +79,18 @@ function text(v: unknown): string {
   return typeof v === "string" && v.trim() !== "" ? v : "";
 }
 
+/**
+ * Tidy an issuer name.
+ *
+ * Some come back with trailing punctuation — "Blue Cross Blue Shield of
+ * Arizona," with the comma — which then appears on every card and in the
+ * carrier filter. Only trailing separators are stripped; "Imperial Insurance
+ * Companies, Inc." keeps its internal comma.
+ */
+function carrierName(v: unknown): string {
+  return text(v).replace(/[,;\s]+$/, "");
+}
+
 /** Money arrives as a string like "395.66". Guard before coercing: Number("")
  *  is 0 and Number(undefined) is NaN, and both would render as a real price. */
 function money(v: unknown): number | null {
@@ -120,7 +132,7 @@ function normalizePlan(p: HsPlan): QuotedPlan {
      * `name` is just the plan ("Bronze Simple"). The card shows the carrier on
      * its own line, so the bare name avoids saying it twice. */
     planName: String(p.name ?? p.display_name ?? ""),
-    carrier: String(p.issuer?.name ?? ""),
+    carrier: carrierName(p.issuer?.name),
     metalLevel: metalLabel(details.metal_level),
     /* plan_id IS the HIOS plan id (e.g. 13877AZ0070072) and issuer_id its
      * first five digits — the two fields the Jot needs. */

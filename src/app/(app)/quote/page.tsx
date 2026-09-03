@@ -34,31 +34,42 @@ export default function QuotePage() {
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmNew, setConfirmNew] = useState(false);
-  /* Metal filter. Necessary rather than decorative: the quote used to cap at
-   * 40 plans and now returns everything the market has — 85 for a Maricopa
-   * household — and 85 cards sorted by premium is not a list anyone scrolls
-   * to the Gold plans through. "" is all levels. */
+  /* Two filters, both "" for no filter. Necessary rather than decorative: the
+   * quote used to cap at 40 plans and now returns everything the market has —
+   * 85 for a Maricopa household — and 85 cards sorted by premium is not a list
+   * anyone scrolls to the Gold plans through. */
   const [metalFilter, setMetalFilter] = useState("");
+  const [carrierFilter, setCarrierFilter] = useState("");
 
   /* Metal levels present in this quote, in coverage order rather than
-   * alphabetical, each with how many plans it has. */
-  const metalCounts = (() => {
-    if (!plans) return [] as Array<readonly [string, string]>;
+   * alphabetical. */
+  const metalLevels = (() => {
+    if (!plans) return [] as string[];
     const order = ["Bronze", "Expanded Bronze", "Silver", "Gold", "Platinum", "Catastrophic"];
-    const counts = new Map<string, number>();
-    for (const p of plans) {
-      if (p.metalLevel) counts.set(p.metalLevel, (counts.get(p.metalLevel) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
-      .map(([level, n]) => [level, `${level} ${n}`] as const);
+    return [...new Set(plans.map((p) => p.metalLevel).filter(Boolean))].sort(
+      (a, b) => order.indexOf(a) - order.indexOf(b),
+    );
   })();
 
-  const shown = plans
-    ? metalFilter
-      ? plans.filter((p) => p.metalLevel === metalFilter)
-      : plans
+  /* Carriers, alphabetical. A select rather than chips: seven issuers with
+   * names like "Ambetter from Arizona Complete Health" do not fit on a row of
+   * pills at 375px, and the metal chips beside them would stop being
+   * scannable. */
+  const carriers = plans
+    ? [...new Set(plans.map((p) => p.carrier).filter(Boolean))].sort((a, b) => a.localeCompare(b))
     : [];
+
+  const shown = (plans ?? []).filter(
+    (p) =>
+      (!metalFilter || p.metalLevel === metalFilter) &&
+      (!carrierFilter || p.carrier === carrierFilter),
+  );
+
+  const filtered = Boolean(metalFilter || carrierFilter);
+  const clearFilters = () => {
+    setMetalFilter("");
+    setCarrierFilter("");
+  };
 
   /**
    * Is there a client's work sitting on this page?
@@ -352,33 +363,73 @@ export default function QuotePage() {
           <section className="space-y-3">
             <div className="flex items-baseline justify-between px-4">
               <h2 className="text-[15px] font-semibold text-navy-900">
-                {shown.length === plans.length
-                  ? `${plans.length} plans`
-                  : `${shown.length} of ${plans.length} plans`}
+                {filtered ? `${shown.length} of ${plans.length} plans` : `${plans.length} plans`}
               </h2>
               <span className="text-[12px] text-muted">cheapest net first</span>
             </div>
 
-            {/* Only the levels this household actually has, with counts —
-                an empty "Platinum" chip is a dead end, and the count is how an
-                agent knows Gold exists at all before scrolling for it. */}
-            {metalCounts.length > 1 ? (
-              <div className="flex gap-2 overflow-x-auto px-4 pb-1">
-                {[["", `All ${plans.length}`] as const, ...metalCounts].map(([value, label]) => (
-                  <button
-                    key={value || "all"}
-                    type="button"
-                    onClick={() => setMetalFilter(value)}
-                    aria-pressed={metalFilter === value}
-                    className={`tap shrink-0 rounded-full px-3.5 text-[13px] font-semibold transition-colors ${
-                      metalFilter === value
-                        ? "bg-navy-900 text-white"
-                        : "bg-white text-navy-700 ring-1 ring-line active:bg-navy-50"
-                    }`}
+            {/* Metal as chips — short, and scannable at a glance. Carrier as a
+                select, because the names are far too long for pills. Only the
+                levels and carriers this household actually has: an empty
+                "Platinum" option is a dead end. */}
+            {metalLevels.length > 1 || carriers.length > 1 ? (
+              <div className="space-y-2 px-4">
+                {metalLevels.length > 1 ? (
+                  <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+                    {["", ...metalLevels].map((level) => (
+                      <button
+                        key={level || "all"}
+                        type="button"
+                        onClick={() => setMetalFilter(level)}
+                        aria-pressed={metalFilter === level}
+                        className={`tap shrink-0 rounded-full px-3.5 text-[13px] font-semibold transition-colors ${
+                          metalFilter === level
+                            ? "bg-navy-900 text-white"
+                            : "bg-white text-navy-700 ring-1 ring-line active:bg-navy-50"
+                        }`}
+                      >
+                        {level || "All levels"}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {carriers.length > 1 ? (
+                  <Select
+                    value={carrierFilter}
+                    onChange={(e) => setCarrierFilter(e.target.value)}
+                    aria-label="Filter by carrier"
                   >
-                    {label}
-                  </button>
-                ))}
+                    <option value="">All carriers</option>
+                    {carriers.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* The two filters are independent, so a combination can honestly
+                match nothing — Cigna has no Gold plan for this household. Say
+                which combination is empty and offer the way out, rather than
+                rendering a blank list. */}
+            {shown.length === 0 ? (
+              <div className="mx-4 rounded-2xl border border-dashed border-line px-6 py-10 text-center">
+                <p className="text-[15px] font-semibold text-navy-900">No plans match</p>
+                <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted">
+                  {carrierFilter && metalFilter
+                    ? `${carrierFilter} has no ${metalFilter} plan for this household.`
+                    : "Nothing matches that filter."}
+                </p>
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="tap mt-3 text-[13px] font-semibold text-navy-700 active:text-navy-900"
+                >
+                  Clear filters
+                </button>
               </div>
             ) : null}
 
