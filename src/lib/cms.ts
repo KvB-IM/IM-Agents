@@ -6,6 +6,7 @@ import {
   type CoverageRow,
 } from "./cmsCoverage.ts";
 import { rankDrugs } from "./drugRank.ts";
+import { rankProviders } from "./providerRank.ts";
 
 /**
  * CMS Marketplace API — drug and provider coverage.
@@ -275,29 +276,47 @@ export async function searchProviders(
   zip: string,
   kind: ProviderKind,
   year: number,
-): Promise<{ providers: ProviderHit[]; yearUsed: number }> {
+): Promise<{ providers: ProviderHit[]; yearUsed: number; total: number }> {
   const q = query.trim();
-  if (q.length < 3) return { providers: [], yearUsed: year };
-  if (!/^\d{5}$/.test(zip)) return { providers: [], yearUsed: year };
+  const empty = { providers: [], yearUsed: year, total: 0 };
+  if (q.length < 3) return empty;
+  if (!/^\d{5}$/.test(zip)) return empty;
 
   const { result, yearUsed } = await withYearFallback(year, (y) =>
     searchProvidersForYear(q, zip, kind, y),
   );
-  return { providers: result, yearUsed };
+  return { ...result, yearUsed };
 }
 
+/**
+ * Paged, then sorted nearest-first.
+ *
+ * Same 25-per-page shape as the drug search, and the same `offset` parameter.
+ * Bounded harder, though: "Smith" as an individual near Aiken SC reports 12,701
+ * matches, and no amount of paging makes that a list. The answer to a search
+ * that broad is to narrow it, so the total comes back for the UI to say so.
+ */
 async function searchProvidersForYear(
   q: string,
   zip: string,
   kind: ProviderKind,
   year: number,
-): Promise<ProviderHit[]> {
-  const data = await cmsGet<{ total?: number; providers?: RawProviderResult[] }>(
-    "/providers/search",
-    { q, zipcode: zip, type: kind, year: String(year) },
-  );
+): Promise<{ providers: ProviderHit[]; total: number }> {
+  const collected: RawProviderResult[] = [];
+  let total = Infinity;
 
-  return (data.providers ?? []).slice(0, 40).map((row) => ({
+  for (let offset = 0; offset < Math.min(total, MAX_PROVIDER_CANDIDATES); offset += PAGE_SIZE) {
+    const data = await cmsGet<{ total?: number; providers?: RawProviderResult[] }>(
+      "/providers/search",
+      { q, zipcode: zip, type: kind, year: String(year), offset: String(offset) },
+    );
+    total = Number(data.total ?? 0);
+    const batch = data.providers ?? [];
+    collected.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+
+  const hits: ProviderHit[] = collected.map((row) => ({
     npi: String(row.provider?.npi ?? ""),
     name: String(row.provider?.name ?? ""),
     kind,
@@ -306,7 +325,12 @@ async function searchProvidersForYear(
     state: String(row.address?.state ?? ""),
     distance: typeof row.distance === "number" ? row.distance : null,
   }));
+
+  return { providers: rankProviders(hits, MAX_PROVIDER_CANDIDATES), total: Number.isFinite(total) ? total : hits.length };
 }
+
+/** Four pages. A broader search than this needs narrowing, not more paging. */
+const MAX_PROVIDER_CANDIDATES = 100;
 
 interface RawProviderResult {
   provider?: { npi?: string; name?: string; specialties?: unknown[] };

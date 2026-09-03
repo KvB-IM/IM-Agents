@@ -172,6 +172,34 @@ export default function QuotePage() {
   const providerIndex = indexCoverage(coverageRows.providers);
   const checking = checkedDrugs.length + checkedProviders.length > 0;
 
+  /**
+   * Did ANY plan in this market publish usable data?
+   *
+   * Not per-plan but market-wide, because that is how the gap actually
+   * appears: in Georgia all five issuers return DataNotProvided for every
+   * provider, so the answer is 97 identical grey badges. Said once at the top
+   * it is useful; repeated on every card it is noise.
+   */
+  const anyAnswer = (index: Map<string, Map<string, CoverageStatus>>, itemIds: string[]) =>
+    itemIds.length > 0 &&
+    (plans ?? []).some((p) =>
+      itemIds.some((id) => {
+        const status = index.get(p.planHiosId)?.get(id);
+        return status !== undefined && status !== "unknown";
+      }),
+    );
+
+  const noDrugData =
+    checkedDrugs.length > 0 &&
+    !coverageBusy &&
+    coverageRows.drugs.length > 0 &&
+    !anyAnswer(indexCoverage(coverageRows.drugs), checkedDrugs.map((d) => d.rxcui));
+  const noProviderData =
+    checkedProviders.length > 0 &&
+    !coverageBusy &&
+    coverageRows.providers.length > 0 &&
+    !anyAnswer(indexCoverage(coverageRows.providers), checkedProviders.map((p) => p.npi));
+
   /* Plans whose own formulary is too sparse to quote a refusal from. */
   const untrusted = unreliablePlans(
     drugIndex,
@@ -364,6 +392,8 @@ export default function QuotePage() {
             busy={coverageBusy}
             error={coverageError}
             yearUsed={coverageYearUsed}
+            noDrugData={noDrugData}
+            noProviderData={noProviderData}
           />
         ) : null}
 

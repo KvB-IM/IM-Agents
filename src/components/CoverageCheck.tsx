@@ -51,6 +51,8 @@ export default function CoverageCheck({
   busy,
   error,
   yearUsed,
+  noDrugData,
+  noProviderData,
 }: {
   year: number;
   zip: string;
@@ -61,6 +63,9 @@ export default function CoverageCheck({
   error: string | null;
   /** The plan year CMS answered from, once a check has run. */
   yearUsed: number | null;
+  /** True when NO plan in this market published the relevant data. */
+  noDrugData: boolean;
+  noProviderData: boolean;
 }) {
   const [mode, setMode] = useState<"drug" | "provider">("drug");
   const [query, setQuery] = useState("");
@@ -70,6 +75,7 @@ export default function CoverageCheck({
   const [drugHits, setDrugHits] = useState<DrugHit[] | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchYearUsed, setSearchYearUsed] = useState<number | null>(null);
+  const [searchTotal, setSearchTotal] = useState<number | null>(null);
   const [providerHits, setProviderHits] = useState<ProviderHit[] | null>(null);
 
   async function run(term?: string) {
@@ -84,6 +90,7 @@ export default function CoverageCheck({
     setDrugHits(null);
     setProviderHits(null);
     setSuggestions([]);
+    setSearchTotal(null);
     try {
       const params = new URLSearchParams({ kind: mode, q, year: String(year) });
       if (mode === "provider") {
@@ -96,6 +103,7 @@ export default function CoverageCheck({
         providers?: ProviderHit[];
         suggestions?: string[];
         yearUsed?: number;
+        total?: number;
         error?: string;
       };
       if (!res.ok) {
@@ -103,6 +111,7 @@ export default function CoverageCheck({
         return;
       }
       setSearchYearUsed(data.yearUsed ?? null);
+      setSearchTotal(typeof data.total === "number" ? data.total : null);
       if (mode === "drug") {
         setDrugHits(data.drugs ?? []);
         setSuggestions(data.suggestions ?? []);
@@ -238,11 +247,21 @@ export default function CoverageCheck({
         {/* CMS wants the COMPLETE, correctly spelled name — a partial word is
             unreliable and a typo returns nothing at all — so the advice is to
             type the whole thing rather than to try harder. */}
+        {/* Says when the list is a slice of something much larger. A provider
+            name like "Smith" matches 12,701 people near one ZIP; showing the
+            hundred nearest without saying so invites picking the wrong one. */}
         {(drugHits && drugHits.length > 0) || (providerHits && providerHits.length > 0) ? (
-          <p className="text-[12px] text-muted">
-            {(drugHits?.length ?? providerHits?.length ?? 0)} match
-            {(drugHits?.length ?? providerHits?.length ?? 0) === 1 ? "" : "es"} — closest first,
-            scroll for more.
+          <p className="text-[12px] leading-snug text-muted">
+            {(() => {
+              const shown = drugHits?.length ?? providerHits?.length ?? 0;
+              const truncated = searchTotal !== null && searchTotal > shown;
+              if (!truncated) {
+                return `${shown} match${shown === 1 ? "" : "es"} — ${
+                  mode === "drug" ? "closest name first" : "nearest first"
+                }.`;
+              }
+              return `Nearest ${shown} of ${searchTotal.toLocaleString()} — add a first name to narrow it.`;
+            })()}
           </p>
         ) : null}
 
@@ -338,6 +357,31 @@ export default function CoverageCheck({
               CMS has not published {year} drug and network lists yet, so these answers come from{" "}
               {yearUsed ?? searchYearUsed}. Most carriers carry the same drugs year to year, but
               check with the carrier before promising anything for {year}.
+            </span>
+          </p>
+        ) : null}
+
+        {/* Said once, at the top, rather than as a grey badge repeated on every
+            card. Georgia is the real case: all five issuers return
+            DataNotProvided for every provider, so a doctor search there returns
+            97 identical shrugs. The carrier's own directory is the answer. */}
+        {!busy && noProviderData ? (
+          <p className="flex items-start gap-2 rounded-xl bg-warning/5 px-3 py-2.5 text-[12px] leading-snug text-navy-900 ring-1 ring-warning/25">
+            <AlertCircle size={14} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+            <span>
+              No carrier in this area has published its provider network to CMS, so doctors
+              cannot be checked here. Use the <strong>Find a doctor</strong> link on a plan
+              instead.
+            </span>
+          </p>
+        ) : null}
+
+        {!busy && noDrugData ? (
+          <p className="flex items-start gap-2 rounded-xl bg-warning/5 px-3 py-2.5 text-[12px] leading-snug text-navy-900 ring-1 ring-warning/25">
+            <AlertCircle size={14} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+            <span>
+              No carrier in this area has published a drug list to CMS. Use the{" "}
+              <strong>Drug list</strong> link on a plan instead.
             </span>
           </p>
         ) : null}

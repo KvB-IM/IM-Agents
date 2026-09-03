@@ -56,13 +56,16 @@ export async function GET(request: NextRequest) {
     if (kind === "provider") {
       const zip = params.get("zip") ?? "";
       const type = params.get("type") === "Facility" ? "Facility" : "Individual";
-      const { providers, yearUsed } = await searchProviders(
+      const { providers, yearUsed, total } = await searchProviders(
         q,
         zip,
         type as ProviderKind,
         year,
       );
-      return NextResponse.json({ providers, yearUsed });
+      /* `total` is what CMS matched, which can be enormous — "Smith" near one
+         South Carolina ZIP is 12,701 people. The UI says so rather than
+         presenting the first hundred as though they were all of them. */
+      return NextResponse.json({ providers, yearUsed, total });
     }
     return NextResponse.json({ error: "kind must be drug or provider." }, { status: 400 });
   } catch (err) {
