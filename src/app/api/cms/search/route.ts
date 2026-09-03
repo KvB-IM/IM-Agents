@@ -7,6 +7,7 @@ import {
   CmsError,
   type ProviderKind,
 } from "@/lib/cms";
+import { spellingSuggestions } from "@/lib/rxnorm";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,14 @@ export async function GET(request: NextRequest) {
 
   try {
     if (kind === "drug") {
-      return NextResponse.json({ drugs: await searchDrugs(q, year) });
+      const drugs = await searchDrugs(q, year);
+      /* Only on an empty result, and only for drugs. CMS does not tolerate a
+       * typo — or reliably a partial word — so an empty search is far more
+       * often a spelling problem than a drug that is genuinely absent. The
+       * suggestions are returned for the AGENT to pick: see lib/rxnorm.ts for
+       * why nothing is substituted automatically. */
+      const suggestions = drugs.length === 0 ? await spellingSuggestions(q) : [];
+      return NextResponse.json({ drugs, suggestions });
     }
     if (kind === "provider") {
       const zip = params.get("zip") ?? "";

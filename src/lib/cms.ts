@@ -5,6 +5,7 @@ import {
   readStatus,
   type CoverageRow,
 } from "./cmsCoverage.ts";
+import { rankDrugs } from "./drugRank.ts";
 
 /**
  * CMS Marketplace API — drug and provider coverage.
@@ -106,29 +107,61 @@ export interface DrugHit {
  *
  * `/drugs/search`, not `/drugs/autocomplete`: autocomplete caps at ten results
  * ordered by rxcui, so "metformin" came back as five combination products and
- * no plain metformin. Search returns a total and a longer list.
+ * no plain metformin. The two also answer different shapes — search returns
+ * `{total, drugs}`, autocomplete a bare array — which reads as an empty result
+ * rather than an error if you assume.
  *
- * Note the shapes differ — search answers `{total, drugs}`, autocomplete a bare
- * array — which is the sort of thing that reads as an empty result rather than
- * an error if you assume.
+ * ── Paging, because 25 is not the answer ─────────────────────────────────
+ * Search reports a `total` and then returns only 25. "metformin" reports 129,
+ * and plain "metFORMIN 500 mg" — the thing the client actually takes — is not
+ * in the first 25. The page parameter is `offset`, not `page`, `limit`, `size`
+ * or any of the usual spellings, all of which are accepted and ignored.
+ *
+ * ── Then ranked, because CMS's order is not relevance ────────────────────
+ * Its first page for "metformin" is ACTOPLUS MET, metFORMIN/Pioglitazone,
+ * JANUMET. See lib/drugRank.ts.
  */
 export async function searchDrugs(query: string, year: number): Promise<DrugHit[]> {
   const q = query.trim();
   if (q.length < 3) return [];
 
-  const data = await cmsGet<{ total?: number; drugs?: RawDrug[] }>("/drugs/search", {
-    q,
-    year: String(year),
-  });
+  const collected: RawDrug[] = [];
+  let total = Infinity;
 
-  return (data.drugs ?? []).slice(0, 40).map((d) => ({
+  /* Bounded, so a query like "insulin" cannot turn one button press into
+     twenty upstream calls while an agent waits — but high enough to actually
+     reach the answer. A 100-result cap was not: "metformin" has 129 matches
+     and every plain metFORMIN entry sits beyond the hundredth, so the ranking
+     had nothing to promote and the agent still saw pioglitazone combinations.
+     Stops as soon as CMS's own `total` is reached, which is under 50 results
+     for most brand names. */
+  for (let offset = 0; offset < Math.min(total, MAX_CANDIDATES); offset += PAGE_SIZE) {
+    const data = await cmsGet<{ total?: number; drugs?: RawDrug[] }>("/drugs/search", {
+      q,
+      year: String(year),
+      offset: String(offset),
+    });
+    total = Number(data.total ?? 0);
+    const batch = data.drugs ?? [];
+    collected.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+
+  const hits: DrugHit[] = collected.map((d) => ({
     rxcui: String(d.rxcui ?? ""),
     name: String(d.name ?? ""),
     strength: String(d.strength ?? ""),
     route: String(d.route ?? ""),
     fullName: String(d.full_name ?? ""),
   }));
+
+  return rankDrugs(hits, q, 40);
 }
+
+/** Fixed by CMS: `/drugs/search` returns 25 rows whatever you ask for. */
+const PAGE_SIZE = 25;
+/** Eight pages. Measured at roughly a second and a half for the worst case. */
+const MAX_CANDIDATES = 200;
 
 interface RawDrug {
   rxcui?: string;

@@ -65,10 +65,12 @@ export default function CoverageCheck({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [drugHits, setDrugHits] = useState<DrugHit[] | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [providerHits, setProviderHits] = useState<ProviderHit[] | null>(null);
 
-  async function run() {
-    const q = query.trim();
+  async function run(term?: string) {
+    const q = (term ?? query).trim();
+    if (term !== undefined) setQuery(term);
     if (q.length < 3) {
       setSearchError("Type at least three letters.");
       return;
@@ -77,6 +79,7 @@ export default function CoverageCheck({
     setSearchError(null);
     setDrugHits(null);
     setProviderHits(null);
+    setSuggestions([]);
     try {
       const params = new URLSearchParams({ kind: mode, q, year: String(year) });
       if (mode === "provider") {
@@ -87,14 +90,19 @@ export default function CoverageCheck({
       const data = (await res.json()) as {
         drugs?: DrugHit[];
         providers?: ProviderHit[];
+        suggestions?: string[];
         error?: string;
       };
       if (!res.ok) {
         setSearchError(data.error ?? "That search failed.");
         return;
       }
-      if (mode === "drug") setDrugHits(data.drugs ?? []);
-      else setProviderHits(data.providers ?? []);
+      if (mode === "drug") {
+        setDrugHits(data.drugs ?? []);
+        setSuggestions(data.suggestions ?? []);
+      } else {
+        setProviderHits(data.providers ?? []);
+      }
     } catch {
       setSearchError("No connection. The plans above are unaffected.");
     } finally {
@@ -108,6 +116,7 @@ export default function CoverageCheck({
       onChange({ drugs: [...drugs, { rxcui: hit.rxcui, label }], providers });
     }
     setDrugHits(null);
+    setSuggestions([]);
     setQuery("");
   };
 
@@ -201,7 +210,7 @@ export default function CoverageCheck({
           />
           <Button
             variant="secondary"
-            onClick={run}
+            onClick={() => void run()}
             disabled={searching}
             className="!w-auto shrink-0 px-4"
           >
@@ -220,10 +229,35 @@ export default function CoverageCheck({
           </p>
         ) : null}
 
+        {/* CMS wants the COMPLETE, correctly spelled name — a partial word is
+            unreliable and a typo returns nothing at all — so the advice is to
+            type the whole thing rather than to try harder. */}
         {drugHits?.length === 0 || providerHits?.length === 0 ? (
-          <p className="text-[12px] text-muted">
-            Nothing found. {mode === "drug" ? "Try the brand or the generic name." : "Try a surname, or a shorter name."}
+          <p className="text-[12px] leading-snug text-muted">
+            {mode === "drug"
+              ? "No match. Type the drug's full name — a partial word or a typo finds nothing."
+              : "Nothing found. Try a surname, or a shorter name."}
           </p>
+        ) : null}
+
+        {/* Offered, never applied. "metfromin" suggests merbromin — an
+            antiseptic dye — ahead of metformin, so the agent picks. */}
+        {suggestions.length > 0 ? (
+          <div className="space-y-1.5">
+            <p className="text-[12px] font-medium text-navy-800">Did you mean</p>
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((sugg) => (
+                <button
+                  key={sugg}
+                  type="button"
+                  onClick={() => void run(sugg)}
+                  className="tap-none rounded-full bg-white px-3 py-1 text-[13px] font-semibold text-navy-800 ring-1 ring-line active:bg-navy-50"
+                >
+                  {sugg}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : null}
 
         {/* Results are a list of exact products — "Metformin 500 mg" is a
