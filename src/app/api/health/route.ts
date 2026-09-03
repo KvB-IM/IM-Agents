@@ -3,6 +3,7 @@ import { currentAgentOrNull } from "@/lib/session";
 import { AgentScope } from "@/lib/scope";
 import { listJots, usingLiveCrm } from "@/lib/store";
 import { hsConfigured } from "@/lib/healthsherpa";
+import { cmsConfigured } from "@/lib/cms";
 import { dbConfigured, databaseUrlSource } from "@/lib/db";
 import { isUpstreamError, zohoClientConfigured } from "@/lib/zoho";
 import { encryptionConfigured } from "@/lib/crypto";
@@ -48,6 +49,17 @@ export async function GET() {
           hint: zohoClientConfigured()
             ? "Client credentials are set. An admin can now connect the CRM from their profile."
             : "Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET, then connect from an admin profile.",
+        },
+    /* Reported because its key expires every 60 days and the failure is
+       otherwise invisible: badges just stop appearing. */
+    coverageLookup: cmsConfigured()
+      ? {
+          configured: true,
+          note: "Drug and provider coverage available. The CMS key expires every 60 days.",
+        }
+      : {
+          configured: false,
+          note: "No CMS_API_KEY — plans quote normally, without coverage badges.",
         },
     auth: dbConfigured()
       ? { mode: "accounts", connectionFrom: databaseUrlSource() }

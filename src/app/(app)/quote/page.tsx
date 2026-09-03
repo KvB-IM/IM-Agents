@@ -5,7 +5,18 @@ import { useRouter } from "next/navigation";
 import { UserPlus, Search, AlertCircle, ArrowRight, X, ChevronLeft } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
-import PlanCard from "@/components/PlanCard";
+import PlanCard, { type CoverageItem } from "@/components/PlanCard";
+import CoverageCheck, {
+  type CheckedDrug,
+  type CheckedProvider,
+} from "@/components/CoverageCheck";
+import {
+  indexCoverage,
+  statusFor,
+  combineStatuses,
+  type CoverageRow,
+  type CoverageStatus,
+} from "@/lib/cmsCoverage.ts";
 import { Card, CardHeader, Field, TextInput, Select, Button, ActionBar, Empty, Inset } from "@/components/ui";
 import { effectiveDateOptions, ageAt } from "@/lib/age";
 import { monthYear, money } from "@/lib/format";
@@ -56,6 +67,20 @@ export default function QuotePage() {
   const [metalFilter, setMetalFilter] = useState("");
   const [carrierFilter, setCarrierFilter] = useState("");
 
+  /* Drug and provider coverage, from CMS. Entirely optional: every failure
+   * path leaves the plan list exactly as it was. */
+  const [checkedDrugs, setCheckedDrugs] = useState<CheckedDrug[]>([]);
+  const [checkedProviders, setCheckedProviders] = useState<CheckedProvider[]>([]);
+  const [coverageRows, setCoverageRows] = useState<{
+    drugs: CoverageRow[];
+    providers: CoverageRow[];
+  }>({ drugs: [], providers: [] });
+  const [coverageBusy, setCoverageBusy] = useState(false);
+  const [coverageError, setCoverageError] = useState<string | null>(null);
+  /* "Only plans that work for this client." Off by default — it hides plans,
+   * and a filter that hides plans has to be the agent's choice. */
+  const [coveredOnly, setCoveredOnly] = useState(false);
+
   /* Metal levels present in this quote, in coverage order rather than
    * alphabetical. */
   const metalLevels = (() => {
@@ -74,16 +99,104 @@ export default function QuotePage() {
     ? [...new Set(plans.map((p) => p.carrier).filter(Boolean))].sort((a, b) => a.localeCompare(b))
     : [];
 
+  /**
+   * Fetch coverage whenever the client's drug or doctor list changes.
+   *
+   * Against EVERY quoted plan, not just the filtered ones: the point of the
+   * question is to find which plans work, and filtering first would hide the
+   * answer. Batched ten plan ids per call inside the API route — 85 plans is
+   * nine sequential calls, about five seconds, however many medications are on
+   * the list.
+   */
+  useEffect(() => {
+    const rxcuis = checkedDrugs.map((d) => d.rxcui);
+    const npis = checkedProviders.map((p) => p.npi);
+    if (!plans || plans.length === 0 || (rxcuis.length === 0 && npis.length === 0)) {
+      setCoverageRows({ drugs: [], providers: [] });
+      setCoverageError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCoverageBusy(true);
+    setCoverageError(null);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/cms/coverage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planIds: plans.map((p) => p.planHiosId).filter(Boolean),
+            rxcuis,
+            npis,
+            year: Number(draft.requestedEffective.slice(0, 4)),
+          }),
+        });
+        const data = (await res.json()) as {
+          drugs?: CoverageRow[];
+          providers?: CoverageRow[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setCoverageError(data.error ?? "The coverage lookup failed.");
+          setCoverageRows({ drugs: [], providers: [] });
+          return;
+        }
+        setCoverageRows({ drugs: data.drugs ?? [], providers: data.providers ?? [] });
+      } catch {
+        if (!cancelled) setCoverageError("No connection, so coverage could not be checked.");
+      } finally {
+        if (!cancelled) setCoverageBusy(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [plans, checkedDrugs, checkedProviders, draft.requestedEffective]);
+
+  const drugIndex = indexCoverage(coverageRows.drugs);
+  const providerIndex = indexCoverage(coverageRows.providers);
+  const checking = checkedDrugs.length + checkedProviders.length > 0;
+
+  /** The badges for one plan, in the order the agent added them. */
+  const coverageFor = (planHiosId: string): CoverageItem[] =>
+    checking
+      ? [
+          ...checkedDrugs.map((d) => ({
+            kind: "drug" as const,
+            label: d.label,
+            status: statusFor(drugIndex, planHiosId, d.rxcui),
+          })),
+          ...checkedProviders.map((pr) => ({
+            kind: "provider" as const,
+            label: pr.label,
+            status: statusFor(providerIndex, planHiosId, pr.npi),
+          })),
+        ]
+      : [];
+
+  /** One verdict per plan, for the "works for this client" filter. */
+  const verdictFor = (planHiosId: string): CoverageStatus =>
+    combineStatuses(coverageFor(planHiosId).map((c) => c.status));
+
   const shown = (plans ?? []).filter(
     (p) =>
       (!metalFilter || p.metalLevel === metalFilter) &&
-      (!carrierFilter || p.carrier === carrierFilter),
+      (!carrierFilter || p.carrier === carrierFilter) &&
+      /* "Covered" only, and NOT "unknown" — see combineStatuses. A plan that
+         never published its formulary has not been shown to work for this
+         client, so it does not belong in a list that claims it does. */
+      (!coveredOnly || !checking || verdictFor(p.planHiosId) === "covered"),
   );
 
-  const filtered = Boolean(metalFilter || carrierFilter);
+  const filtered = Boolean(metalFilter || carrierFilter || (coveredOnly && checking));
   const clearFilters = () => {
     setMetalFilter("");
     setCarrierFilter("");
+    setCoveredOnly(false);
   };
 
   /**
@@ -211,6 +324,23 @@ export default function QuotePage() {
           </p>
         </Inset>
 
+        {/* Optional, and it degrades to nothing: unconfigured key, expired
+            key or CMS down all leave the plan list untouched. */}
+        {plans.length > 0 ? (
+          <CoverageCheck
+            year={Number(draft.requestedEffective.slice(0, 4))}
+            zip={draft.zip}
+            drugs={checkedDrugs}
+            providers={checkedProviders}
+            onChange={({ drugs, providers }) => {
+              setCheckedDrugs(drugs);
+              setCheckedProviders(providers);
+            }}
+            busy={coverageBusy}
+            error={coverageError}
+          />
+        ) : null}
+
         {plans.length === 0 ? (
           <Empty
             title="No plans returned"
@@ -223,7 +353,7 @@ export default function QuotePage() {
                 the Gold chip was off the right edge of a 375px screen, which
                 is the same problem as the 40-plan cap: an option nobody can
                 see. A select shows every choice in one tap. */}
-            {metalLevels.length > 1 || carriers.length > 1 ? (
+            {metalLevels.length > 1 || carriers.length > 1 || checking ? (
               <div className="space-y-2 px-4">
                 {metalLevels.length > 1 ? (
                   <Select
@@ -253,6 +383,24 @@ export default function QuotePage() {
                       </option>
                     ))}
                   </Select>
+                ) : null}
+
+                {/* Only offered once something is being checked, and only
+                    while the answers are in — a toggle that hides plans on
+                    incomplete data is worse than no toggle. */}
+                {checking && !coverageBusy && !coverageError ? (
+                  <button
+                    type="button"
+                    onClick={() => setCoveredOnly((v) => !v)}
+                    aria-pressed={coveredOnly}
+                    className={`tap w-full rounded-xl px-3 text-[14px] font-medium transition-colors ${
+                      coveredOnly
+                        ? "bg-navy-900 text-white"
+                        : "bg-white text-navy-700 ring-1 ring-line active:bg-navy-50"
+                    }`}
+                  >
+                    {coveredOnly ? "Showing only plans that cover all of it" : "Only plans that cover all of it"}
+                  </button>
                 ) : null}
               </div>
             ) : null}
@@ -292,6 +440,7 @@ export default function QuotePage() {
                 plan={plan}
                 selected={draft.selectedPlan?.planId === plan.planId}
                 onSelect={() => patch({ selectedPlan: plan })}
+                coverage={coverageFor(plan.planHiosId)}
               />
             ))}
 

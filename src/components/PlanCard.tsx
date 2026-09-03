@@ -1,6 +1,7 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Pill, Stethoscope } from "lucide-react";
+import { statusLabel, type CoverageStatus } from "@/lib/cmsCoverage.ts";
 import type { QuotedPlan } from "@/lib/types";
 import { money, metalClass } from "@/lib/format";
 
@@ -12,16 +13,25 @@ import { money, metalClass } from "@/lib/format";
  * shown underneath so the agent can explain where the net came from — and so a
  * $0 net does not look like a bug.
  */
+export interface CoverageItem {
+  kind: "drug" | "provider";
+  label: string;
+  status: CoverageStatus;
+}
+
 export default function PlanCard({
   plan,
   selected,
   onSelect,
   className = "",
+  coverage,
 }: {
   plan: QuotedPlan;
   selected: boolean;
   onSelect: () => void;
   className?: string;
+  /** Per-item coverage for the drugs and doctors the agent asked about. */
+  coverage?: CoverageItem[];
 }) {
   return (
     <button
@@ -76,6 +86,19 @@ export default function PlanCard({
           ) : null}
         </div>
       </div>
+
+      {/* What this plan does with the client's own drugs and doctors.
+          Placed above the money, because for someone on a biologic it is the
+          deciding fact and the premium is secondary. */}
+      {coverage && coverage.length > 0 ? (
+        <ul className="mt-3 flex flex-wrap gap-1.5">
+          {coverage.map((item) => (
+            <li key={`${item.kind}-${item.label}`}>
+              <CoverageBadge item={item} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px]">
         <div className="flex justify-between">
@@ -159,6 +182,48 @@ export default function PlanCard({
  * handle it inconsistently. This is a span with link semantics that opens the
  * URL itself, and stops the click from bubbling into "select this plan".
  */
+/**
+ * One drug or doctor against this plan.
+ *
+ * Four states, deliberately: "Not published" is NOT "not covered". CMS answers
+ * from files the issuer publishes, and a plan that published nothing has not
+ * excluded anything — telling a client their medication is off a formulary on
+ * that basis would be a wrong answer with real consequences. "Generic only"
+ * stays separate too: the brand is off the list but its generic is on it, which
+ * is a conversation with the prescriber rather than a tick.
+ */
+function CoverageBadge({ item }: { item: CoverageItem }) {
+  const tone = {
+    covered: "bg-success/10 text-success ring-success/25",
+    generic: "bg-gold-100 text-gold-600 ring-gold-500/30",
+    not_covered: "bg-error/10 text-error ring-error/25",
+    unknown: "bg-navy-50 text-muted ring-line",
+  }[item.status];
+
+  const mark = {
+    covered: "✓",
+    generic: "≈",
+    not_covered: "✕",
+    unknown: "?",
+  }[item.status];
+
+  return (
+    <span
+      className={`inline-flex max-w-[15rem] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${tone}`}
+      title={`${item.label} — ${statusLabel(item.status)}`}
+    >
+      {item.kind === "drug" ? (
+        <Pill size={11} className="shrink-0" aria-hidden />
+      ) : (
+        <Stethoscope size={11} className="shrink-0" aria-hidden />
+      )}
+      <span className="truncate">{item.label}</span>
+      <span aria-hidden>{mark}</span>
+      <span className="sr-only">{statusLabel(item.status)}</span>
+    </span>
+  );
+}
+
 function DocLink({ href, label }: { href: string; label: string }) {
   return (
     <span
