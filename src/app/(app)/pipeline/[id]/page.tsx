@@ -97,13 +97,22 @@ export default async function JotDetailPage({ params }: { params: Promise<{ id: 
       ) : null}
 
       {/* ── Corrections ────────────────────────────────────────────────── */}
-      {needsAgent ? (
-        <CorrectionForm
-          jotId={jot.id}
-          groups={CORRECTION_GROUPS}
-          documents={jot.requiredDocuments}
-        />
-      ) : null}
+      {/* Offered on EVERY form the agent owns, not only ones the office has
+          flagged. The gate used to be `needsAgent`, which meant an agent who
+          spotted their own typo — a transposed date of birth, a wrong ZIP —
+          had no way to fix it and no way to say so, and the form sat with bad
+          data until the office happened to catch it. Waiting for someone else
+          to notice your mistake is not a workflow.
+
+          Collapsed by default: reading a form must not be one keystroke from
+          altering it. The server allowlist is the real boundary either way —
+          the stage, classification and FFM ids can never be written here. */}
+      <CorrectionForm
+        jotId={jot.id}
+        groups={CORRECTION_GROUPS}
+        documents={jot.requiredDocuments}
+        label={needsAgent ? "Fix what the office needs" : "Correct this application"}
+      />
 
       {/* ── Policy, once converted ─────────────────────────────────────── */}
       {jot.policyId ? (

@@ -1,17 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { upload } from "@vercel/blob/client";
 import { Camera, Check, AlertCircle, Trash2, Loader2 } from "lucide-react";
-import { compressImage } from "@/lib/compressImage";
-import { BLOB_ACCESS, STAGING_PREFIX } from "@/lib/blobAccess";
+import { stageDocument } from "@/lib/stageDocument";
 import { Card, CardHeader, Button } from "./ui";
 
-export interface StagedDocument {
-  url: string;
-  filename: string;
-  bytes: number;
-}
+import type { StagedDocument } from "@/lib/stageDocument";
+export type { StagedDocument } from "@/lib/stageDocument";
 
 /**
  * Photograph the applicant's license.
@@ -33,7 +28,7 @@ export default function LicenseCapture({
   onChange: (doc: StagedDocument | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<"compressing" | "uploading" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shrunk, setShrunk] = useState<string | null>(null);
 
@@ -42,45 +37,23 @@ export default function LicenseCapture({
     setShrunk(null);
 
     try {
-      setBusy("compressing");
-      const result = await compressImage(file);
-      if (result.passthrough && result.reason) {
-        // Not shown to the agent: the upload still works, and "compression
-        // fell back" is not information they can act on.
-        console.info(`[license] sent at full size — ${result.reason}`);
-      } else {
-        setShrunk(
-          `${fmtBytes(result.originalBytes)} → ${fmtBytes(result.bytes)}`,
-        );
+      /* Staging happens WHILE THE AGENT IS STILL WITH THE CLIENT, rather than
+         at submit: "did the photo leave the phone" and "did the CRM accept it"
+         are different problems, and only the first needs the client present. */
+      setBusy(true);
+      const staged = await stageDocument(file);
+      if (staged.compressed) {
+        setShrunk(`${fmtBytes(staged.originalBytes)} → ${fmtBytes(staged.bytes)}`);
       }
 
-      setBusy("uploading");
-      /* Direct to the store, not through our API. That is what removes the
-         serverless body cap and makes the compression above an optimisation
-         rather than a requirement. */
-      /* `access` MUST match what the token route declares. A client saying
-       * "public" against a token issued for "private" is rejected by the blob
-       * API — and because an error response carries no CORS headers, the
-       * browser reports it as a CORS failure and swallows the reason. That
-       * cost a debugging round; the two are now declared in one place. */
-      const blob = await upload(
-        // Prefixed here, not rewritten server-side — see STAGING_PREFIX.
-        `${STAGING_PREFIX}license-${Date.now()}.jpg`,
-        result.file,
-        {
-          access: BLOB_ACCESS,
-          handleUploadUrl: "/api/uploads/token",
-        },
-      );
-
-      onChange({ url: blob.url, filename: result.file.name, bytes: result.bytes });
+      onChange({ url: staged.url, filename: staged.filename, bytes: staged.bytes });
     } catch (err) {
       console.error("[license] upload failed:", err);
       setError(
         "That photo did not upload. Check the signal and try again — it has not been saved.",
       );
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -134,12 +107,12 @@ export default function LicenseCapture({
           <Button
             variant="secondary"
             onClick={() => inputRef.current?.click()}
-            disabled={busy !== null}
+            disabled={busy}
           >
             {busy ? (
               <>
                 <Loader2 size={16} className="animate-spin" aria-hidden />
-                {busy === "compressing" ? "Preparing…" : "Uploading…"}
+                Uploading…
               </>
             ) : (
               <>

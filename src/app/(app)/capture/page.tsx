@@ -282,9 +282,20 @@ function Capture() {
       <div className="space-y-4">
         <Inset>
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-[22px] font-bold leading-tight tracking-tight text-navy-900">
-              {name || "Application in progress"}
-            </h1>
+            <div className="min-w-0">
+              {/* Named as a DRAFT before the client name, because this tab holds
+                  one unfinished application and it is not necessarily the form
+                  the agent was just looking at in the pipeline. Landing here
+                  after opening someone else's submitted form and being offered
+                  "continue" on a different client reads as the app showing the
+                  wrong record. */}
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gold-600">
+                Unfinished application
+              </p>
+              <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight text-navy-900">
+                {name || "No name captured yet"}
+              </h1>
+            </div>
             {/* Leaves the draft alone. It is saved either way — this is a
                 door out of the screen, not a discard. */}
             <button
@@ -296,9 +307,10 @@ function Capture() {
               <X size={20} aria-hidden />
             </button>
           </div>
-          <p className="mt-0.5 text-[13px] text-muted">
-            Not submitted. Saved on this device{" "}
-            {draft.updatedAt ? `· last edited ${shortDate(draft.updatedAt)}` : ""}
+          <p className="mt-1 text-[13px] leading-snug text-muted">
+            Started on this device and not submitted
+            {draft.updatedAt ? ` · last edited ${shortDate(draft.updatedAt)}` : ""}. Submitted
+            forms live in Pipeline.
           </p>
         </Inset>
 

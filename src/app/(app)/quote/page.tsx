@@ -23,6 +23,11 @@ export default function QuotePage() {
   const router = useRouter();
   const { draft, patch, patchPerson, addPerson, removePerson, loaded } = useDraft();
 
+  const primaryName = (() => {
+    const p = draft.people.find((x) => x.relation === "primary") ?? draft.people[0];
+    return [p?.firstName, p?.lastName].filter(Boolean).join(" ");
+  })();
+
   const [counties, setCounties] = useState<County[]>([]);
   const [countyLoading, setCountyLoading] = useState(false);
   const [plans, setPlans] = useState<QuotedPlan[] | null>(null);
@@ -275,8 +280,13 @@ export default function QuotePage() {
 
             {draft.selectedPlan ? (
               <ActionBar>
+                {/* Names the client. A quote page reached with a draft already
+                    in progress otherwise offers "Continue to application" for
+                    whoever that draft belongs to, with nothing saying so. */}
                 <Button onClick={() => router.push("/capture?start=1")}>
-                  Continue to application
+                  {primaryName
+                    ? `Continue ${primaryName}'s application`
+                    : "Continue to application"}
                   <ArrowRight size={17} aria-hidden />
                 </Button>
               </ActionBar>
