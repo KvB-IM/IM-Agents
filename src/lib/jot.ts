@@ -88,7 +88,7 @@ export const CAPTURE_WRITABLE = {
   // When the agent filed it. NOT auto-populated on an API create — verified
   // against production: a created record came back with Submission_Time null.
   // It has to be set here, and it matters more than it looks:
-  //   * it is what the pipeline query sorts by, and
+  //   * it is what the submissions query sorts by, and
   //   * any office report filtering on Submission_Time would silently omit
   //     every agent-portal form if it were left empty.
   Submission_Time: "datetime",

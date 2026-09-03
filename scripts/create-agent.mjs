@@ -190,7 +190,7 @@ async function main() {
     "\n⚠  The Zoho agent name must match this agent's entry in Zoho's `Agent`\n" +
       "   global picklist EXACTLY. Zoho silently drops a value that is not on the\n" +
       "   picklist, so a misspelling here means the agent files forms attributed to\n" +
-      "   nobody and then sees an empty pipeline. Check it before continuing.\n",
+      "   nobody and then sees an empty submissions list. Check it before continuing.\n",
   );
 
   const password = await promptHidden("Password (min 12 chars): ");

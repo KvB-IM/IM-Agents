@@ -33,7 +33,7 @@ export default function ZohoConnection({
         {status === "connected" ? (
           <p className="flex items-center gap-2 rounded-xl bg-success/5 px-3 py-2.5 text-[13px] text-success ring-1 ring-success/20">
             <CheckCircle2 size={15} className="shrink-0" aria-hidden />
-            Connected. The pipeline now reads live data.
+            Connected. Submissions now read live data.
           </p>
         ) : null}
 

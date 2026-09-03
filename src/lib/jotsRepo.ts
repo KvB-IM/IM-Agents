@@ -21,7 +21,7 @@ import { JOT_MODULE } from "./jot";
  */
 
 /**
- * Columns read for the agent's pipeline.
+ * Columns read for the agent's submissions list.
  *
  * Deliberately narrow. This is the field app: it shows an agent where their own
  * forms stand, and it has no reason to pull the applicant's SSN, income detail
@@ -190,7 +190,7 @@ export async function getJot(scope: AgentScope, id: string): Promise<Jot | null>
  * stamped server-side. This function does not add or override fields — if
  * something is missing, fix it in draftToJot where the allowlist lives.
  *
- * Returns the created form as the pipeline will show it, read back rather than
+ * Returns the created form as Submissions will show it, read back rather than
  * assumed: Zoho applies workflows on create, and the stage or status the office
  * automation sets is the truth, not whatever this app hoped for.
  */
@@ -269,7 +269,7 @@ export async function applyCorrections(
 /**
  * The dependents subform for one Jot.
  *
- * Separate from the pipeline read because subform rows come back only on a
+ * Separate from the submissions read because subform rows come back only on a
  * single-record GET. Ownership is checked first — `getRecord` is unscoped, so
  * calling it without this guard would read any Jot in the org.
  */

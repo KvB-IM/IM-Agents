@@ -24,7 +24,7 @@ import { agentFromSession } from "./auth";
  * A note on the combination that used to need guarding.
  *
  * A stubbed session means every visitor is the same agent. Paired with live CRM
- * credentials on a public URL, that would publish one agent's whole pipeline —
+ * credentials on a public URL, that would publish one agent's whole submissions list —
  * names, dates of birth, addresses — to anyone with the link. There was a
  * runtime check here that threw on exactly that.
  *

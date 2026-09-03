@@ -9,7 +9,7 @@ import { Badge, Empty, Inset } from "@/components/ui";
 import type { Jot } from "@/lib/types";
 
 /* Rendered per request, never prerendered: these read the agent's own records,
-   and a statically generated page would bake one agent's pipeline into the
+   and a statically generated page would bake one agent's submissions into the
    build output and serve it to everyone. */
 export const dynamic = "force-dynamic";
 
@@ -29,8 +29,8 @@ const BADGE_TONE = {
  * forms with problems under fifteen that are fine is a queue nobody opens
  * twice.
  */
-export default async function PipelinePage() {
-  const agent = await requireAgent("/pipeline");
+export default async function SubmissionsPage() {
+  const agent = await requireAgent("/submissions");
   const scope = AgentScope.forAgent(agent.id, agent.name);
   const jots = await listJots(scope);
 
@@ -43,7 +43,7 @@ export default async function PipelinePage() {
   return (
     <div className="space-y-4">
       <Inset>
-        <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Pipeline</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Submissions</h1>
         <p className="mt-0.5 text-[13px] text-muted">
           {jots.length} {jots.length === 1 ? "form" : "forms"} you have submitted.
         </p>
@@ -116,7 +116,7 @@ function JotRow({ jot }: { jot: Jot }) {
 
   return (
     <Link
-      href={`/pipeline/${jot.id}`}
+      href={`/submissions/${jot.id}`}
       className="block bg-white px-4 py-3.5 active:bg-navy-50/60 sm:rounded-2xl sm:ring-1 sm:ring-line"
     >
       <div className="flex items-start justify-between gap-3">

@@ -21,7 +21,7 @@ create table if not exists agents (
   -- Submitting_Field_Agent is a picklist backed by that global set — not a user
   -- lookup and not free text — so Zoho SILENTLY DROPS a value that is not on
   -- it. An agent whose name is missing or misspelt here files forms attributed
-  -- to nobody, and then reads back an empty pipeline that looks like a new
+  -- to nobody, and then reads back an empty submissions list that looks like a new
   -- account rather than a broken one. GET /api/health checks for exactly this.
   --
   -- Consequence for the admin flow: onboarding an agent is a Zoho picklist
@@ -56,7 +56,7 @@ create table if not exists agents (
 create unique index if not exists agents_email_key
   on agents (lower(email));
 
--- The pipeline query filters on this name, so it has to resolve to one agent.
+-- The submissions query filters on this name, so it has to resolve to one agent.
 create unique index if not exists agents_zoho_agent_name_key
   on agents (lower(zoho_agent_name));
 

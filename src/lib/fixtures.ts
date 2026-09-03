@@ -103,7 +103,7 @@ export function fixturePlans(householdSize: number, income: number | null, total
  *
  * Follows PROTOTYPE_AGENT_NAME so fixture mode shows data whatever that is set
  * to. Hard-coding a name here meant changing the configured agent silently
- * emptied the pipeline, which looks exactly like the real failure it is not
+ * emptied the submissions list, which looks exactly like the real failure it is not
  * (an agent missing from Zoho's `Agent` picklist).
  */
 const FIXTURE_AGENT = process.env.PROTOTYPE_AGENT_NAME || "Dana Ruiz";
@@ -185,7 +185,7 @@ export const FIXTURE_JOTS: Jot[] = [
   },
   {
     // A stage value this app has not been taught. Must render verbatim rather
-    // than disappear from the pipeline or the funnel.
+    // than disappear from Submissions or the funnel.
     id: "9000000000000501007", formId: "ID99000000000000007", clientName: "Rosalind Ferrer",
     status: "Awaiting Validation", enrollmentStage: "Awaiting Carrier",
     classification: "Valid",
@@ -198,7 +198,7 @@ export const FIXTURE_JOTS: Jot[] = [
   },
   {
     // Belongs to someone else. Present ON PURPOSE: it is what proves the scope
-    // filter is doing something. It must never appear in the agent's pipeline.
+    // filter is doing something. It must never appear in the agent's submissions.
     id: "9000000000000501099", formId: "ID99000000000000008",
     clientName: "Someone Else's Client",
     status: "Awaiting Validation", enrollmentStage: "Ready to Enroll",

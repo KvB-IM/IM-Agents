@@ -60,7 +60,7 @@ account should not be able to.
 as `agents.zoho_agent_name`. This is not optional and it fails silently:
 `Submitting_Field_Agent` is a picklist backed by that global set, and Zoho drops
 a value that is not on it. An unlisted agent files forms attributed to nobody
-and then sees an empty pipeline that looks like a new account rather than a
+and then sees an empty submissions list that looks like a new account rather than a
 broken one. `/api/health` warns on exactly this case.
 
 **3. Postgres** — `DATABASE_URL`, plus `DRAFT_ENCRYPTION_KEY` for draft SSNs.
@@ -107,7 +107,7 @@ cp .env.example .env.local
 | Quote: household, DOBs, income → plans with premium/APTC/net | Real route, fixture fallback |
 | Application in HealthSherpa step order, 6 steps, dependents | Working, writes through an allowlist |
 | Submit → create a `JOTS` record | **Wired** to Zoho; fixtures when unconfigured |
-| Pipeline: own forms, stage, problems, required documents | Working |
+| Submissions: own forms, stage, problems, required documents | Working |
 | KPIs: stage funnel, waiting-on-you, unstaged, stalled | Working |
 | Corrections write-back | **Wired**, allowlisted, office fields rejected |
 | Document photo upload | Button present, upload not wired |
@@ -283,7 +283,7 @@ against fixtures. Four things that only showed up by doing it:
 
 Also confirmed: the `Agent` picklist contains two generic entries, `Other` and
 `Aor`, alongside real agent names. `Other` is the safe value for a write test —
-it touches no real agent's pipeline or KPIs.
+it touches no real agent's submissions or KPIs.
 
 ## Authentication
 
@@ -301,7 +301,7 @@ Re-running `create-agent` for an existing email resets the password, revokes
 that agent's live sessions, and clears their login throttle.
 
 ⚠ `--zoho-name` must match the agent's entry in Zoho's `Agent` global picklist
-**exactly**, or their forms are attributed to nobody and their pipeline reads
+**exactly**, or their forms are attributed to nobody and their submissions read
 empty. The script says so before it writes.
 
 `--admin` grants the ability to connect the CRM and administer accounts. There

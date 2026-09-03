@@ -28,7 +28,7 @@ const BADGE_TONE = {
  */
 export default async function JotDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const agent = await requireAgent(`/pipeline/${id}`);
+  const agent = await requireAgent(`/submissions/${id}`);
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
   const jot = await getJot(scope, id);
@@ -44,10 +44,10 @@ export default async function JotDetailPage({ params }: { params: Promise<{ id: 
     <div className="space-y-4">
       <Inset>
         <Link
-          href="/pipeline"
+          href="/submissions"
           className="tap -ml-1 inline-flex items-center gap-1 text-[13px] font-medium text-navy-700"
         >
-          <ChevronLeft size={16} aria-hidden /> Pipeline
+          <ChevronLeft size={16} aria-hidden /> Submissions
         </Link>
 
         <div className="mt-1 flex items-start justify-between gap-3">

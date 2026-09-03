@@ -39,7 +39,7 @@ export async function GET() {
       : {
           configured: false,
           mode: "fixture",
-          note: "Pipeline and KPIs are fixture data.",
+          note: "Submissions and KPIs are fixture data.",
           // Which piece is missing, since "not connected" has three causes and
           // guessing between them is the slow way to fix a deployment.
           clientCredentials: zohoClientConfigured(),

@@ -12,7 +12,7 @@ import { dbConfigured, sql } from "@/lib/db";
 import { zohoCredentials } from "@/lib/zohoToken";
 
 /* Rendered per request, never prerendered: these read the agent's own records,
-   and a statically generated page would bake one agent's pipeline into the
+   and a statically generated page would bake one agent's submissions into the
    build output and serve it to everyone. */
 export const dynamic = "force-dynamic";
 

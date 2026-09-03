@@ -238,8 +238,8 @@ function Capture() {
           </p>
         ) : null}
         <Inset className="space-y-2">
-          <Button onClick={() => router.push(`/pipeline/${submitted.id}`)}>
-            View in pipeline
+          <Button onClick={() => router.push(`/submissions/${submitted.id}`)}>
+            View in submissions
           </Button>
           <Button
             variant="secondary"
@@ -344,7 +344,7 @@ function Capture() {
             <div className="min-w-0">
               {/* Named as a DRAFT before the client name, because this tab holds
                   one unfinished application and it is not necessarily the form
-                  the agent was just looking at in the pipeline. Landing here
+                  the agent was just looking at in Submissions. Landing here
                   after opening someone else's submitted form and being offered
                   "continue" on a different client reads as the app showing the
                   wrong record. */}
@@ -359,7 +359,7 @@ function Capture() {
                 door out of the screen, not a discard. */}
             <button
               type="button"
-              onClick={() => router.push("/pipeline")}
+              onClick={() => router.push("/submissions")}
               aria-label="Close"
               className="tap -mr-1 -mt-1 flex w-10 shrink-0 items-center justify-center rounded-lg text-muted active:bg-navy-50"
             >
@@ -369,7 +369,7 @@ function Capture() {
           <p className="mt-1 text-[13px] leading-snug text-muted">
             Started on this device and not submitted
             {draft.updatedAt ? ` · last edited ${shortDate(draft.updatedAt)}` : ""}. Submitted
-            forms live in Pipeline.
+            forms live in Submissions.
           </p>
         </Inset>
 

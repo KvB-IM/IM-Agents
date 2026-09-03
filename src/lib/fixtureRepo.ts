@@ -12,7 +12,7 @@ import { FIXTURE_JOTS } from "./fixtures";
  *
  * State lives on globalThis because Next re-evaluates route modules in dev — a
  * module-level array resets between navigations, and a form submitted on
- * /capture had vanished by the time /pipeline rendered. It does not survive a
+ * /capture had vanished by the time /submissions rendered. It does not survive a
  * server restart, and it is per-process, which is exactly why it is fixtures
  * and not a data layer.
  */
@@ -104,7 +104,7 @@ export async function createJot(
     policyId: "",
     policyName: "",
     // Taken from the scope, not from the payload — the same value the server
-    // stamped, so a record cannot be filed into someone else's pipeline even
+    // stamped, so a record cannot be filed into someone else's submissions even
     // if the payload were tampered with.
     submittingFieldAgent: scope.agentName,
   };

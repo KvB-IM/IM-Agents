@@ -14,7 +14,7 @@ import { Calculator, ClipboardList, LayoutList, User } from "lucide-react";
 const TABS = [
   { href: "/quote", label: "Quote", Icon: Calculator },
   { href: "/capture", label: "Application", Icon: ClipboardList },
-  { href: "/pipeline", label: "Pipeline", Icon: LayoutList },
+  { href: "/submissions", label: "Submissions", Icon: LayoutList },
   { href: "/me", label: "Me", Icon: User },
 ];
 

@@ -147,7 +147,7 @@ export async function createAgent(input: CreateAgentInput): Promise<CreateResult
     select email from agents where lower(zoho_agent_name) = ${zohoAgentName.toLowerCase()} limit 1
   `) as Array<{ email: string }>;
   if (clash.length > 0) {
-    // The pipeline query filters on this name, so two accounts sharing it would
+    // The submissions query filters on this name, so two accounts sharing it would
     // each see the other's clients.
     return {
       ok: false,

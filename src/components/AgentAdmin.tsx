@@ -185,7 +185,7 @@ export default function AgentAdmin() {
             </Field>
             <Field
               label="Zoho agent name"
-              hint="Must match their entry in Zoho's Agent picklist exactly, or their pipeline reads empty."
+              hint="Must match their entry in Zoho's Agent picklist exactly, or their submissions read empty."
             >
               <TextInput
                 value={zohoName}
