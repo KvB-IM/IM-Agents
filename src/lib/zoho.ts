@@ -1,5 +1,6 @@
 import "server-only";
 import { zohoCredentials, noteZohoError, noteZohoRefresh } from "./zohoToken";
+import { zohoCaches } from "./zohoCache";
 
 /**
  * Zoho CRM client — service-account model.
@@ -87,18 +88,10 @@ export class DuplicateRecordError extends Error {
 }
 
 /* ── Access token ──────────────────────────────────────────────────────────
- * Cached on globalThis rather than in a module const: Next re-evaluates route
- * modules in dev, and a per-module cache would refresh on every navigation and
- * burn through Zoho's refresh-call limit. */
-interface TokenCache {
-  token: string | null;
-  expiresAt: number;
-  inFlight: Promise<string> | null;
-}
-
-const g = globalThis as unknown as { __imZohoToken?: TokenCache };
-g.__imZohoToken ??= { token: null, expiresAt: 0, inFlight: null };
-const tokenCache = g.__imZohoToken;
+ * Cache lives in lib/zohoCache.ts alongside the refresh-token cache, because
+ * the two must be invalidated together. Keeping them apart meant a reconnect
+ * that added scopes had no effect until the old access token expired. */
+const tokenCache = zohoCaches.access;
 
 async function fetchAccessToken(): Promise<string> {
   const creds = await zohoCredentials();

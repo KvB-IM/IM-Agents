@@ -53,8 +53,16 @@ export const config = {
    * configured and how many forms the CRM returns for the stubbed agent, and it
    * is the first thing to check when a deployment misbehaves. It exposes no
    * client data. If that ever changes, take it off this list.
+   *
+   * /api/cron is excluded because Vercel Cron has NO SESSION COOKIE. Leaving it
+   * matched meant the sweep got a 401 from here before its own authorisation
+   * ever ran — silently unreachable in production, with a bucket slowly filling
+   * with photographs of driver's licences. Those routes authenticate with
+   * CRON_SECRET in constant time and refuse outright when it is unset, so they
+   * are not unprotected; they are protected differently, and the middleware
+   * cannot see it.
    */
   matcher: [
-    "/((?!login|api/auth|api/health|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!login|api/auth|api/health|api/cron|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

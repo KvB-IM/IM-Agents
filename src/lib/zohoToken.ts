@@ -1,6 +1,7 @@
 import "server-only";
 import { sql, dbConfigured } from "./db";
 import { encryptSecret, decryptSecret, encryptionConfigured } from "./crypto";
+import { zohoCaches, resetZohoCaches } from "./zohoCache";
 
 /**
  * Where the Zoho refresh token comes from.
@@ -26,17 +27,12 @@ import { encryptSecret, decryptSecret, encryptionConfigured } from "./crypto";
  * reconnects.
  */
 
-interface TokenCache {
-  token: string | null;
-  apiDomain: string | null;
-  readAt: number;
-}
-
+/** How long a refresh token read from the database is reused. */
 const CACHE_TTL_MS = 60_000;
 
-const g = globalThis as unknown as { __imZohoRefresh?: TokenCache };
-g.__imZohoRefresh ??= { token: null, apiDomain: null, readAt: 0 };
-const cache = g.__imZohoRefresh;
+/* Shared with the access-token cache — see lib/zohoCache.ts for why they are
+ * not allowed to live apart. */
+const cache = zohoCaches.refresh;
 
 export interface ZohoCredentials {
   clientId: string;
@@ -136,10 +132,11 @@ export async function saveZohoConnection(opts: {
            last_error_at = null
   `;
 
-  // Invalidate immediately: a reconnect has to take effect on the next request,
-  // not up to a minute later.
-  cache.token = null;
-  cache.readAt = 0;
+  /* Invalidate BOTH caches. Clearing only the refresh token left the app
+   * holding an access token minted under the OLD scopes — so a reconnect
+   * granting attachment access looked successful and every attachment call
+   * kept 401ing for up to an hour. */
+  resetZohoCaches();
 }
 
 /** Record a refresh failure, so a dead connection is visible in the health
