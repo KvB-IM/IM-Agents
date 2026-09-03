@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, Suspense } from "react";
+import { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -22,6 +22,8 @@ import { effectiveHouseholdSize } from "@/lib/household";
 import LicenseCapture from "@/components/LicenseCapture";
 import ReviewSummary from "@/components/ReviewSummary";
 import { buildSections } from "@/lib/reviewRows.ts";
+import { readCaptureUi, serializeCaptureUi, closedAt } from "@/lib/captureUi.ts";
+import type { CaptureUi } from "@/lib/captureUi.ts";
 import * as PL from "@/lib/picklists";
 import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
 import type { Jot } from "@/lib/types";
@@ -40,6 +42,9 @@ import type { Jot } from "@/lib/types";
 
 const STEPS = ["Applicant", "Address", "Household", "Income", "Coverage", "Review"] as const;
 
+/** Where the agent is in the form. Beside the draft, and cleared with it. */
+const UI_KEY = "im-agent-capture-ui-v1";
+
 export default function CapturePage() {
   /* useSearchParams needs a Suspense boundary above it. */
   return (
@@ -53,22 +58,68 @@ function Capture() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { draft, patch, patchPerson, loaded, reset } = useDraft();
-  const [step, setStep] = useState(0);
   /**
-   * Is the form OPEN for editing?
+   * Whether the form is open, and which step — persisted, not component state.
    *
    * Reopening a saved application used to drop straight into the editable
    * stepper, which is wrong twice over: an agent tapping Application to check
    * what is on a form should not be one stray keystroke away from altering it,
    * and there was no way back out — no Close, so the only exit was another tab,
-   * and returning reopened the same fields again.
+   * and returning reopened the same fields again. So arriving cold shows what
+   * the application holds and asks.
    *
-   * So arriving cold shows what the application holds and asks. `?start=1`
-   * skips the gate, because coming from "Continue to application" on the quote
-   * IS the decision to start filling it in.
+   * But holding that in component state broke something worse: this form is one
+   * route, so every tab change unmounts it. An agent who tapped Quote to
+   * re-check a premium came back to the gate, at step 1, place gone — the form
+   * had closed itself behind them mid-enrollment. The position lives in
+   * sessionStorage next to the draft for exactly the same reason the draft
+   * does. See lib/captureUi.ts.
    */
-  const [editing, setEditing] = useState(searchParams.get("start") === "1");
+  const [ui, setUi] = useState<CaptureUi | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  /* Read once. `?start=1` means the agent just chose "Continue to application"
+   * on the quote, which IS the decision to start filling it in — so it opens
+   * the form directly. Captured in a ref because the URL is scrubbed
+   * immediately afterwards and this must not re-fire and force the form back
+   * open after a Close. */
+  const startRequested = useRef(searchParams.get("start") === "1");
+
+  useEffect(() => {
+    if (!loaded) return;
+    const saved = readCaptureUi(
+      sessionStorage.getItem(UI_KEY),
+      draft.id,
+      STEPS.length,
+    );
+    setUi(startRequested.current ? { ...saved, editing: true } : saved);
+    if (startRequested.current) {
+      startRequested.current = false;
+      /* Drop the parameter now rather than on Close. Left in the URL, a
+         refresh would reopen the form and undo whatever the agent last did. */
+      router.replace("/capture");
+    }
+  }, [loaded, draft.id, router]);
+
+  useEffect(() => {
+    if (!ui) return;
+    try {
+      sessionStorage.setItem(UI_KEY, serializeCaptureUi(ui));
+    } catch {
+      /* private mode or full quota: the position is still right in memory */
+    }
+  }, [ui]);
+
+  const step = ui?.step ?? 0;
+  const editing = ui?.editing ?? false;
+  const setStep = (next: number | ((s: number) => number)) =>
+    setUi((u) => {
+      const base = u ?? closedAt(draft.id);
+      const raw = typeof next === "function" ? next(base.step) : next;
+      return { ...base, step: Math.min(Math.max(raw, 0), STEPS.length - 1) };
+    });
+  const setEditing = (open: boolean) =>
+    setUi((u) => ({ ...(u ?? closedAt(draft.id)), editing: open }));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<Jot | null>(null);
@@ -124,6 +175,12 @@ function Capture() {
         return;
       }
       setSubmitted(data.jot);
+      /* The position belonged to a form that no longer needs filling in. */
+      try {
+        sessionStorage.removeItem(UI_KEY);
+      } catch {
+        /* nothing to clear */
+      }
 
       /* Attach the photo AFTER the Jot exists — an attachment needs a record
        * id. Deliberately not fatal to the submission: the application is
@@ -157,7 +214,7 @@ function Capture() {
     }
   }
 
-  if (!loaded) return null;
+  if (!loaded || !ui) return null;
 
   // ── Submitted ────────────────────────────────────────────────────────────
   if (submitted) {
@@ -271,7 +328,10 @@ function Capture() {
 
         <Inset className="space-y-2">
           <Button onClick={() => setEditing(true)}>
-            <Pencil size={16} aria-hidden /> Open and continue
+            <Pencil size={16} aria-hidden />
+            {step > 0
+              ? `Open at ${STEPS[step]} · step ${step + 1} of ${STEPS.length}`
+              : "Open and continue"}
           </Button>
 
           {/* Two taps, on purpose. This is the only copy of an application an
@@ -296,9 +356,14 @@ function Capture() {
                 <Button
                   variant="danger"
                   onClick={() => {
+                    try {
+                      sessionStorage.removeItem(UI_KEY);
+                    } catch {
+                      /* nothing to clear */
+                    }
                     reset();
                     setConfirmDiscard(false);
-                    setStep(0);
+                    setUi(null);
                   }}
                   className="!w-auto flex-1"
                 >
@@ -331,12 +396,7 @@ function Capture() {
                 out was the tab bar, which reopened it on the way back. */}
             <button
               type="button"
-              onClick={() => {
-                setEditing(false);
-                /* Drop ?start=1, or a refresh after closing would reopen the
-                   form in edit mode — the exact thing Close just undid. */
-                router.replace("/capture");
-              }}
+              onClick={() => setEditing(false)}
               aria-label="Close the application"
               className="tap -mr-1 flex w-9 items-center justify-center rounded-lg text-muted active:bg-navy-50"
             >
