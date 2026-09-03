@@ -12,7 +12,7 @@
 /**
  * Private, not public.
  *
- * A photograph of somebody's driver's licence must not be readable by anyone
+ * A photograph of somebody's driver's license must not be readable by anyone
  * who happens to have the link. The server reads it back with credentials and
  * forwards the bytes to Zoho.
  *

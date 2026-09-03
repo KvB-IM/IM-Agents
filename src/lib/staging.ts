@@ -9,7 +9,7 @@ import { get, head, del, list } from "@vercel/blob";
  * "compress under 4.5MB" a CORRECTNESS requirement executed on a phone. Canvas
  * compression fails in ways we cannot control — iOS Safari has memory ceilings
  * on large images and `toBlob` can return null under pressure — and a failure
- * means the agent re-photographs a licence while sitting with the client.
+ * means the agent re-photographs a license while sitting with the client.
  *
  * Uploading direct to the blob store bypasses the function entirely, so there
  * is no cap and compression becomes a bandwidth optimisation instead. Zoho's
@@ -19,7 +19,7 @@ import { get, head, del, list } from "@vercel/blob";
  *
  * ── Why not hand Zoho a URL ──────────────────────────────────────────────
  * Zoho can fetch an attachment from a URL, which would be simpler. It would
- * also mean a driver's licence sitting at a publicly reachable address for as
+ * also mean a driver's license sitting at a publicly reachable address for as
  * long as Zoho takes to collect it. The store is PRIVATE and the server reads
  * it back with credentials instead; IM_CRM_Frontend made the same call, with
  * the note that a document "is never readable by anyone who happens to have the
@@ -84,7 +84,7 @@ export interface StagedFile {
  * Through the SDK's `get` with `access: "private"`, NOT a fetch of the blob's
  * `downloadUrl`. The first attempt did the latter and got a 403 — which is the
  * store working as intended: a private blob's URL is not fetchable on its own,
- * and that is exactly why a driver's licence is kept in one. `access` is
+ * and that is exactly why a driver's license is kept in one. `access` is
  * required on the READ as well as the write; the SDK will not infer it from the
  * hostname even though the access mode is right there in it.
  *
@@ -136,7 +136,7 @@ export interface SweepResult {
  * immediately on confirmation. What this catches is an upload abandoned before
  * submission: a closed tab, a dead battery, an agent who changed their mind.
  * Those would otherwise sit in the bucket holding a photograph of somebody's
- * driver's licence indefinitely.
+ * driver's license indefinitely.
  */
 export async function sweepStaged(now = new Date()): Promise<SweepResult> {
   const cutoff = now.getTime() - STAGING_TTL_DAYS * 86_400_000;

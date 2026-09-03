@@ -6,11 +6,12 @@ import Link from "next/link";
 import { AlertCircle, Send, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
-import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Badge, Empty, Inset } from "@/components/ui";
+import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Empty, Inset } from "@/components/ui";
 import { money, monthYear } from "@/lib/format";
 import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
 import { effectiveHouseholdSize } from "@/lib/household";
 import LicenseCapture from "@/components/LicenseCapture";
+import ReviewSummary from "@/components/ReviewSummary";
 import * as PL from "@/lib/picklists";
 import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
 import type { Jot } from "@/lib/types";
@@ -71,6 +72,7 @@ export default function CapturePage() {
   })();
 
   const blocker = step === 0 ? applicantBlocker : null;
+  const onReview = step === STEPS.length - 1;
 
   async function submit() {
     setError(null);
@@ -239,8 +241,9 @@ export default function CapturePage() {
       {/* ── Step 1: Address and contact ────────────────────────────────── */}
       {step === 1 ? (
         <Card>
-          <CardHeader title="Address and contact" hint="Permanent address, as the exchange has it." />
+          <CardHeader title="Home address and contact" hint="Where they actually live, as the exchange has it." />
           <div className="space-y-3 px-4 pb-4">
+            <SubHead>Home address</SubHead>
             <Field label="Street">
               <TextInput
                 value={draft.street}
@@ -259,6 +262,22 @@ export default function CapturePage() {
                 />
               </Field>
             </div>
+
+            {/* Directly under the HOME address, deliberately. Sitting below the
+                mailing block it read as "everyone lives at the MAILING
+                address" — a different question, and the wrong one to answer.
+                Only worth asking when more than one person is on the form. */}
+            {draft.people.length > 1 ? (
+              <PickField
+                label="Everyone applying lives at this address"
+                choices={PL.YES_NO}
+                value={draft.everyoneSameAddress}
+                onChange={(everyoneSameAddress) => patch({ everyoneSameAddress })}
+                hint="If not, the office will need the other address."
+              />
+            ) : null}
+
+            <SubHead>Contact</SubHead>
             <Field label="Email">
               <TextInput
                 type="email"
@@ -288,6 +307,7 @@ export default function CapturePage() {
               </Field>
             </div>
 
+            <SubHead>Mailing address</SubHead>
             <Field label="Mailing address is the same as the home address">
               <Toggle
                 value={draft.mailingSameAsHome}
@@ -332,17 +352,6 @@ export default function CapturePage() {
                   />
                 </Field>
               </div>
-            ) : null}
-
-            {/* Only worth asking when more than one person is on the form. */}
-            {draft.people.length > 1 ? (
-              <PickField
-                label="Everyone applying lives at this address"
-                choices={PL.YES_NO}
-                value={draft.everyoneSameAddress}
-                onChange={(everyoneSameAddress) => patch({ everyoneSameAddress })}
-                hint="If not, the office will need the other address."
-              />
             ) : null}
           </div>
         </Card>
@@ -421,7 +430,7 @@ export default function CapturePage() {
                 <AlertCircle size={15} className="mt-0.5 shrink-0 text-navy-600" aria-hidden />
                 <span>
                   Because they became a citizen rather than being born here, the exchange will
-                  ask for a document — a naturalisation certificate, certificate of citizenship,
+                  ask for a document — a naturalization certificate, certificate of citizenship,
                   or US passport. Only answer this way if that is genuinely the case.
                 </span>
               </p>
@@ -664,41 +673,7 @@ export default function CapturePage() {
             onChange={(photoId) => patch({ photoId })}
           />
 
-          <Card>
-            <CardHeader title="Review" hint="What the office will receive." />
-            <dl className="divide-y divide-line px-4 pb-2">
-              {[
-                ["Applicant", [primary?.firstName, primary?.lastName].filter(Boolean).join(" ") || "—"],
-                ["Date of birth", primary?.dateOfBirth || "—"],
-                ["Household", String(draft.householdSize ?? draft.people.length)],
-                ["Members on form", String(draft.people.length)],
-                ["County", draft.county ? `${draft.county.name}, ${draft.county.state}` : "—"],
-                ["Income", draft.householdIncome === null ? "—" : money(draft.householdIncome)],
-                ["Plan", draft.selectedPlan.planName],
-                ["Carrier", draft.selectedPlan.carrier],
-                ["Premium", money(draft.selectedPlan.premium)],
-                ["Net to client", money(draft.selectedPlan.netPremium)],
-                ["Effective", monthYear(draft.requestedEffective)],
-                ["Enrollment type", draft.enrollmentType || "—"],
-              ].map(([k, v]) => (
-                <div key={k} className="flex items-baseline justify-between gap-4 py-2.5">
-                  <dt className="text-[13px] text-muted">{k}</dt>
-                  <dd className="text-right text-[13px] font-medium text-navy-900">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          </Card>
-
-          <div className="mx-4 rounded-xl bg-white px-3.5 py-3 ring-1 ring-line">
-            <div className="flex items-center gap-2">
-              <Badge tone="gold">Credited to</Badge>
-              <span className="text-[13px] font-medium text-navy-900">you</span>
-            </div>
-            <p className="mt-1.5 text-[12px] leading-snug text-muted">
-              You go on this form as the accredited field agent. The enrolling agent of record is
-              set by the office, not here.
-            </p>
-          </div>
+          <ReviewSummary draft={draft} onEdit={setStep} />
 
           {error ? (
             <p className="mx-4 flex items-start gap-2 rounded-xl bg-error/5 px-3 py-2.5 text-[13px] text-error ring-1 ring-error/15">
@@ -729,19 +704,33 @@ export default function CapturePage() {
           variant="secondary"
           onClick={() => setStep((s) => Math.max(0, s - 1))}
           disabled={step === 0}
-          className="!w-auto flex-1"
+          className={onReview ? "" : "!w-auto flex-1"}
         >
           <ChevronLeft size={17} aria-hidden /> Back
         </Button>
-        <Button
-          onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-          disabled={step === STEPS.length - 1 || blocker !== null}
-          className="!w-auto flex-[2]"
-        >
-          Next <ChevronRight size={17} aria-hidden />
-        </Button>
+        {/* No Next on the review step. There is nowhere to go, so it could only
+            ever render disabled — and a dead primary button sitting beside
+            "Submit to the office" reads as a requirement the agent has not
+            met yet. Submit is the forward action there. */}
+        {onReview ? null : (
+          <Button
+            onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
+            disabled={blocker !== null}
+            className="!w-auto flex-[2]"
+          >
+            Next <ChevronRight size={17} aria-hidden />
+          </Button>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Groups fields inside a card, so "Home address" and "Mailing address" are
+ *  distinguishable at a glance instead of being one run of inputs. */
+function SubHead({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="pt-1 text-[12px] font-semibold uppercase tracking-wide text-muted">{children}</p>
   );
 }
 

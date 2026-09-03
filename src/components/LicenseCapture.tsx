@@ -14,13 +14,13 @@ export interface StagedDocument {
 }
 
 /**
- * Photograph the applicant's licence.
+ * Photograph the applicant's license.
  *
  * Uploaded to staging as soon as it is taken — WHILE THE AGENT IS STILL WITH
  * THE CLIENT — rather than held until submit. That separation is the reliability
  * decision: "did the photo leave the phone" and "did the CRM accept it" are
  * different problems, and only the first one needs the client present. A
- * connectivity failure surfaces here, where the licence is still on the table.
+ * connectivity failure surfaces here, where the license is still on the table.
  *
  * `capture="environment"` opens the rear camera directly on a phone, and the
  * same input still offers the photo library on a tablet or desktop.
@@ -88,7 +88,7 @@ export default function LicenseCapture({
     <Card>
       <CardHeader
         title="Photo ID"
-        hint="A picture of the applicant's licence, as proof of contact."
+        hint="A picture of the applicant's license, as proof of contact."
       />
 
       <div className="space-y-3 px-4 pb-4">
@@ -115,10 +115,6 @@ export default function LicenseCapture({
                 <p className="mt-0.5 text-[12px] text-muted">
                   {fmtBytes(staged.bytes)}
                   {shrunk ? ` · compressed from ${shrunk.split(" → ")[0]}` : ""}
-                </p>
-                <p className="mt-1 text-[11px] leading-snug text-muted">
-                  It attaches to the CRM when you submit, and is deleted from here once the CRM
-                  confirms it.
                 </p>
               </div>
             </div>

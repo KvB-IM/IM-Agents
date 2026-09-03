@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * The backstop. A blob that reached the CRM is deleted the moment Zoho confirms
  * it, so what this catches is an upload abandoned before submission: a closed
  * tab, a dead battery, an agent who changed their mind. Those would otherwise
- * sit in the bucket holding a photograph of somebody's driver's licence
+ * sit in the bucket holding a photograph of somebody's driver's license
  * indefinitely.
  *
  * Authorised by CRON_SECRET rather than a session, because Vercel Cron has no

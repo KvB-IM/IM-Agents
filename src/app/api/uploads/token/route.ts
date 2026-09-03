@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
            * is image/jpeg on one device and image/jpg on another. An allowlist
            * here turns a correct upload into a 400 nobody can read. */
           maximumSizeInBytes: MAX_UPLOAD_BYTES,
-          // Two photographs of the same licence must not collide.
+          // Two photographs of the same license must not collide.
           addRandomSuffix: true,
-          /* Private: a driver's licence must not be readable by anyone who
+          /* Private: a driver's license must not be readable by anyone who
            * happens to have the link — the server reads it back with
            * credentials instead. Shared with the client through one constant,
            * because a mismatch here is rejected by the blob API and surfaces

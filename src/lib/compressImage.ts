@@ -5,15 +5,15 @@
  * rather than through a serverless function, there is no ~4.5MB request cap to
  * squeeze under, so a compression that under-performs still succeeds, just
  * slower. That distinction is the whole reason for the blob path: making
- * canvas compression load-bearing on a phone is how a licence photo fails at a
+ * canvas compression load-bearing on a phone is how a license photo fails at a
  * kitchen table.
  *
  * So every failure here falls back to the original file rather than throwing.
- * A 6MB upload on cellular is slow; a lost licence photo is a second visit.
+ * A 6MB upload on cellular is slow; a lost license photo is a second visit.
  */
 
 export interface CompressOptions {
-  /** Longest edge, in pixels. 1600 keeps the small print on a licence legible. */
+  /** Longest edge, in pixels. 1600 keeps the small print on a license legible. */
   maxEdge?: number;
   /** JPEG quality, 0-1. */
   quality?: number;

@@ -123,3 +123,18 @@ export function applySsnInput(raw: string, currentDigits: string): string {
   // mask. Leaving the value alone is better than guessing at an SSN.
   return digits;
 }
+
+/**
+ * How an SSN reads on the review screen: last four only.
+ *
+ * Different from `maskedSsn`, which is the WHILE-TYPING view and shows the most
+ * recent digit. On review the agent is confirming a number they entered several
+ * screens ago, and the last four is what a client can verify out loud without
+ * the whole number being on a screen in someone's living room.
+ */
+export function ssnSummary(raw: string): string {
+  const d = ssnDigits(raw);
+  if (d.length === 0) return "";
+  if (d.length < 9) return `Incomplete — ${d.length} of 9 digits`;
+  return `•••-••-${d.slice(5)}`;
+}

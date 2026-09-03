@@ -57,7 +57,7 @@ export const config = {
    * /api/cron is excluded because Vercel Cron has NO SESSION COOKIE. Leaving it
    * matched meant the sweep got a 401 from here before its own authorisation
    * ever ran — silently unreachable in production, with a bucket slowly filling
-   * with photographs of driver's licences. Those routes authenticate with
+   * with photographs of driver's licenses. Those routes authenticate with
    * CRON_SECRET in constant time and refuse outright when it is unset, so they
    * are not unprotected; they are protected differently, and the middleware
    * cannot see it.

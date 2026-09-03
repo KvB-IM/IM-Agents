@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * GET /api/enrollments/:id/attachments — what the CRM holds for this form.
  *
  * Scoped: the agent must own the Jot. An agent has a legitimate reason to check
- * whether the licence they photographed actually arrived.
+ * whether the license they photographed actually arrived.
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -151,7 +151,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     /* Deleted ONLY on confirmation. Anything else leaves it for the sweep,
      * because the staged copy may be the only one that exists — the phone's
      * camera roll is not a guarantee, and an agent who has moved on cannot
-     * re-photograph a licence that is no longer in front of them. */
+     * re-photograph a license that is no longer in front of them. */
     if (confirmed) await discardStaged(url);
   }
 }
