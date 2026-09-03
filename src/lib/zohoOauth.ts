@@ -26,6 +26,15 @@ export const ZOHO_SCOPES = [
   "ZohoCRM.modules.custom.UPDATE",
   "ZohoCRM.coql.READ",
   "ZohoCRM.settings.fields.READ",
+  /* Attachments are a SEPARATE scope from the module that owns the record.
+   * A token with full custom-module access still gets a bare 401 from
+   * /{module}/{id}/Attachments without these — which reads as an auth failure
+   * rather than a permissions one, and cost a debugging round to place.
+   *
+   * READ is not optional here: the photo flow deletes the staged copy only
+   * after CONFIRMING Zoho lists the attachment, and confirmation is a read. */
+  "ZohoCRM.modules.attachments.CREATE",
+  "ZohoCRM.modules.attachments.READ",
 ] as const;
 
 /** True when the app's own client credentials are configured. */

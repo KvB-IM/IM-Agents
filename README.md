@@ -49,6 +49,8 @@ ZohoCRM.modules.custom.CREATE
 ZohoCRM.modules.custom.UPDATE
 ZohoCRM.coql.READ
 ZohoCRM.settings.fields.READ
+ZohoCRM.modules.attachments.CREATE
+ZohoCRM.modules.attachments.READ
 ```
 
 Do **not** grant DELETE — nothing here deletes a CRM record and the service

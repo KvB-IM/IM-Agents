@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { currentAgentOrNull } from "@/lib/session";
-import { stagingConfigured, STAGING_PREFIX, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/staging";
+import { stagingConfigured, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/staging";
+import { BLOB_ACCESS, STAGING_PREFIX } from "@/lib/blobAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,14 @@ export async function POST(request: NextRequest) {
       request,
       body: (await request.json()) as HandleUploadBody,
       onBeforeGenerateToken: async (pathname) => {
+        /* Refuse anything outside the staging prefix. The `pathname` option
+         * below does NOT override what the client asked for — the file lands
+         * where the client said — so this is enforcement, not decoration. It
+         * keeps the sweep's blast radius and isStagedUrl's guarantee honest. */
+        if (!pathname.startsWith(STAGING_PREFIX)) {
+          throw new Error(`upload path must start with ${STAGING_PREFIX}`);
+        }
+
         /* Logged without the filename. Agents name files after the client, and
          * "Maria Gonzalez license.jpg" in a retained log line says who the
          * client is and that we hold their identity document — which is the
@@ -48,13 +57,12 @@ export async function POST(request: NextRequest) {
           maximumSizeInBytes: MAX_UPLOAD_BYTES,
           // Two photographs of the same licence must not collide.
           addRandomSuffix: true,
-          /* Private. A driver's licence must not be readable by anyone who
+          /* Private: a driver's licence must not be readable by anyone who
            * happens to have the link — the server reads it back with
-           * credentials instead. */
-          access: "private" as never,
-          pathname: pathname.startsWith(STAGING_PREFIX)
-            ? pathname
-            : `${STAGING_PREFIX}${pathname.replace(/^\/+/, "")}`,
+           * credentials instead. Shared with the client through one constant,
+           * because a mismatch here is rejected by the blob API and surfaces
+           * in the browser as an unexplained CORS error. */
+          access: BLOB_ACCESS,
         };
       },
       // Fires when the blob lands. Nothing to do — the browser tells us next,

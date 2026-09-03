@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import { Camera, Check, AlertCircle, Trash2, Loader2 } from "lucide-react";
 import { compressImage } from "@/lib/compressImage";
+import { BLOB_ACCESS, STAGING_PREFIX } from "@/lib/blobAccess";
 import { Card, CardHeader, Button } from "./ui";
 
 export interface StagedDocument {
@@ -57,10 +58,20 @@ export default function LicenseCapture({
       /* Direct to the store, not through our API. That is what removes the
          serverless body cap and makes the compression above an optimisation
          rather than a requirement. */
-      const blob = await upload(`license-${Date.now()}.jpg`, result.file, {
-        access: "public" as never,
-        handleUploadUrl: "/api/uploads/token",
-      });
+      /* `access` MUST match what the token route declares. A client saying
+       * "public" against a token issued for "private" is rejected by the blob
+       * API — and because an error response carries no CORS headers, the
+       * browser reports it as a CORS failure and swallows the reason. That
+       * cost a debugging round; the two are now declared in one place. */
+      const blob = await upload(
+        // Prefixed here, not rewritten server-side — see STAGING_PREFIX.
+        `${STAGING_PREFIX}license-${Date.now()}.jpg`,
+        result.file,
+        {
+          access: BLOB_ACCESS,
+          handleUploadUrl: "/api/uploads/token",
+        },
+      );
 
       onChange({ url: blob.url, filename: result.file.name, bytes: result.bytes });
     } catch (err) {

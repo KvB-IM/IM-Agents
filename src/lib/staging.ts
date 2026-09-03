@@ -1,5 +1,5 @@
 import "server-only";
-import { head, del, list } from "@vercel/blob";
+import { get, head, del, list } from "@vercel/blob";
 
 /**
  * Blob staging for document uploads.
@@ -31,8 +31,10 @@ import { head, del, list } from "@vercel/blob";
  * submission (a closed tab, a dead battery), not the normal path.
  */
 
-/** Everything this app stages lives under one prefix, so the sweep is precise. */
-export const STAGING_PREFIX = "staged/licenses/";
+/* The prefix is declared in lib/blobAccess.ts because the CLIENT needs it too
+ * — it builds the upload path. Re-exported so server code has one import. */
+export { STAGING_PREFIX } from "./blobAccess";
+import { STAGING_PREFIX, BLOB_ACCESS } from "./blobAccess";
 
 /** Zoho's own attachment ceiling. The blob path is what makes this reachable. */
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -79,9 +81,15 @@ export interface StagedFile {
 /**
  * Read a staged blob back.
  *
- * Through `head` + an authenticated fetch rather than a bare GET of the URL:
- * the store is private, so the URL alone is not fetchable. That is the point of
- * it.
+ * Through the SDK's `get` with `access: "private"`, NOT a fetch of the blob's
+ * `downloadUrl`. The first attempt did the latter and got a 403 — which is the
+ * store working as intended: a private blob's URL is not fetchable on its own,
+ * and that is exactly why a driver's licence is kept in one. `access` is
+ * required on the READ as well as the write; the SDK will not infer it from the
+ * hostname even though the access mode is right there in it.
+ *
+ * `head` still runs first, for the size check — refusing an oversized file
+ * before downloading 20MB of it into a serverless function's memory.
  */
 export async function readStaged(url: string): Promise<StagedFile> {
   const meta = await head(url);
@@ -90,11 +98,11 @@ export async function readStaged(url: string): Promise<StagedFile> {
     throw new Error(`staged file is ${meta.size} bytes, over the ${MAX_UPLOAD_LABEL} limit`);
   }
 
-  const res = await fetch(meta.downloadUrl);
-  if (!res.ok) throw new Error(`staged read failed (${res.status})`);
+  const staged = await get(url, { access: BLOB_ACCESS });
+  if (!staged) throw new Error("staged file could not be read back");
 
   return {
-    buffer: Buffer.from(await res.arrayBuffer()),
+    buffer: Buffer.from(await new Response(staged.stream).arrayBuffer()),
     contentType: meta.contentType || "application/octet-stream",
     size: meta.size,
   };
