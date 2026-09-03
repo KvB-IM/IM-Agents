@@ -10,6 +10,7 @@ import {
   combineStatuses,
   statusLabel,
   type CoverageRow,
+  type CoverageStatus,
 } from "../src/lib/cmsCoverage.ts";
 
 /**

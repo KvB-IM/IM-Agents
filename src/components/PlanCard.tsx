@@ -38,13 +38,19 @@ export default function PlanCard({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      /* `block`, NOT `w-full`. A <button> is inline-block, so it needs a display
-         change to fill its line — but `w-full` means 100% of the PARENT, which
-         with the caller\'s `mx-4` came to viewport + 32px. Every card hung off
-         the right edge of a 375px screen, clipping the premium, and the whole
-         page scrolled horizontally. A block element with margins fills what is
-         left over, which is what was wanted. */
-      className={`block rounded-2xl bg-white p-4 text-left ring-1 transition-shadow ${
+      /* `block w-full`, and the caller must NOT add horizontal margins.
+       *
+       * Two wrong answers preceded this one. `w-full` alone plus the caller's
+       * `mx-4` measured viewport + 32px, so every card hung off the right of a
+       * 375px screen and the page scrolled sideways. Replacing it with bare
+       * `block` fixed that and broke the wide layout instead: a <button> sizes
+       * to its CONTENT, so each card came out as wide as its own plan name and
+       * the list was ragged, the selected card wider than its neighbours.
+       *
+       * `w-full` fills the parent, `block` puts it on its own line, and the
+       * inset lives on the list container as PADDING, where it cannot be added
+       * to a width. */
+      className={`block w-full rounded-2xl bg-white p-4 text-left ring-1 transition-shadow ${
         selected
           ? "ring-2 ring-navy-900 shadow-[0_2px_10px_rgba(11,26,51,0.12)]"
           : "ring-line active:bg-navy-50/50"
