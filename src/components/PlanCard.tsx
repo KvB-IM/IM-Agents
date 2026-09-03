@@ -28,7 +28,13 @@ export default function PlanCard({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`w-full rounded-2xl bg-white p-4 text-left ring-1 transition-shadow ${
+      /* `block`, NOT `w-full`. A <button> is inline-block, so it needs a display
+         change to fill its line — but `w-full` means 100% of the PARENT, which
+         with the caller\'s `mx-4` came to viewport + 32px. Every card hung off
+         the right edge of a 375px screen, clipping the premium, and the whole
+         page scrolled horizontally. A block element with margins fills what is
+         left over, which is what was wanted. */
+      className={`block rounded-2xl bg-white p-4 text-left ring-1 transition-shadow ${
         selected
           ? "ring-2 ring-navy-900 shadow-[0_2px_10px_rgba(11,26,51,0.12)]"
           : "ring-line active:bg-navy-50/50"
@@ -96,30 +102,34 @@ export default function PlanCard({
           These were in every quote response and thrown away, which is a shame
           because they are the questions a client actually asks — "what do I
           pay to see my doctor" beats a deductible they will never meet. */}
+      {/* One column on a phone, two from `sm`. Several of these values are
+          sentences — "40% coinsurance after deductible" — and in a 2-column
+          grid at 375px each wrapped to three lines and made the card twice as
+          tall. Full width fits them on one line. */}
       {plan.primaryCare || plan.specialist || plan.genericRx ? (
-        <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line pt-2.5 text-[12px]">
+        <dl className="mt-2.5 grid grid-cols-1 gap-x-4 gap-y-1 border-t border-line pt-2.5 text-[12px] sm:grid-cols-2">
           {plan.primaryCare ? (
             <div className="flex justify-between gap-2">
               <dt className="shrink-0 text-muted">Doctor</dt>
-              <dd className="truncate font-medium text-navy-800">{plan.primaryCare}</dd>
+              <dd className="text-right font-medium text-navy-800">{plan.primaryCare}</dd>
             </div>
           ) : null}
           {plan.specialist ? (
             <div className="flex justify-between gap-2">
               <dt className="shrink-0 text-muted">Specialist</dt>
-              <dd className="truncate font-medium text-navy-800">{plan.specialist}</dd>
+              <dd className="text-right font-medium text-navy-800">{plan.specialist}</dd>
             </div>
           ) : null}
           {plan.genericRx ? (
             <div className="flex justify-between gap-2">
               <dt className="shrink-0 text-muted">Generic Rx</dt>
-              <dd className="truncate font-medium text-navy-800">{plan.genericRx}</dd>
+              <dd className="text-right font-medium text-navy-800">{plan.genericRx}</dd>
             </div>
           ) : null}
           {plan.urgentCare ? (
             <div className="flex justify-between gap-2">
               <dt className="shrink-0 text-muted">Urgent care</dt>
-              <dd className="truncate font-medium text-navy-800">{plan.urgentCare}</dd>
+              <dd className="text-right font-medium text-navy-800">{plan.urgentCare}</dd>
             </div>
           ) : null}
         </dl>

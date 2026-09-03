@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus, Search, AlertCircle, ArrowRight, X } from "lucide-react";
+import { UserPlus, Search, AlertCircle, ArrowRight, X, ChevronLeft } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
 import PlanCard from "@/components/PlanCard";
 import { Card, CardHeader, Field, TextInput, Select, Button, ActionBar, Empty, Inset } from "@/components/ui";
 import { effectiveDateOptions, ageAt } from "@/lib/age";
-import { monthYear } from "@/lib/format";
+import { monthYear, money } from "@/lib/format";
 import type { County, QuotedPlan } from "@/lib/types";
 
 /**
@@ -34,6 +34,21 @@ export default function QuotePage() {
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmNew, setConfirmNew] = useState(false);
+  /**
+   * Which screen: the inputs, or the results.
+   *
+   * One long page meant the plans sat below three cards of form, so an agent
+   * scrolled past the household to reach them and then scrolled back up to
+   * change an income. Splitting them gives the plan list the whole screen —
+   * which it needs, now that a quote returns every plan in the market rather
+   * than the first 40 — and gives the filters somewhere to live that is not
+   * competing with inputs.
+   *
+   * Deliberately NOT persisted: `plans` lives in component state and is lost
+   * on unmount, so there would be nothing to show a returning agent. The form
+   * is the honest landing place, with their inputs and plan selection intact.
+   */
+  const [view, setView] = useState<"form" | "plans">("form");
   /* Two filters, both "" for no filter. Necessary rather than decorative: the
    * quote used to cap at 40 plans and now returns everything the market has —
    * 85 for a Maricopa household — and 85 cards sorted by premium is not a list
@@ -147,6 +162,12 @@ export default function QuotePage() {
         return;
       }
       setPlans(data.plans ?? []);
+      /* Straight to the results. Also resets the filters: they belong to the
+         quote that produced them, and a stale "Gold only" hiding the plans of
+         a quote just re-run for a different income is a bug report. */
+      setMetalFilter("");
+      setCarrierFilter("");
+      setView("plans");
     } catch {
       setError("No connection. The quote needs signal — the application does not.");
     } finally {
@@ -155,6 +176,143 @@ export default function QuotePage() {
   }, [draft, covered]);
 
   if (!loaded) return null;
+
+  // ── Results ──────────────────────────────────────────────────────────────
+  if (view === "plans" && plans) {
+    return (
+      <div className="space-y-4">
+        <Inset>
+          {/* Back, not a tab change: the inputs and the plan selection are
+              still here, and an agent adjusting an income expects to land on
+              the field they were changing. */}
+          <button
+            type="button"
+            onClick={() => setView("form")}
+            className="tap -ml-1 inline-flex items-center gap-1 text-[13px] font-medium text-navy-700 active:text-navy-900"
+          >
+            <ChevronLeft size={16} aria-hidden /> Edit details
+          </button>
+
+          <h1 className="mt-1 text-[22px] font-bold leading-tight tracking-tight text-navy-900">
+            {primaryName ? `Plans for ${primaryName}` : "Plans"}
+          </h1>
+          {/* The inputs that produced this list, so they can be sanity-checked
+              without going back for them. A quote run on the wrong household
+              size or income looks completely plausible on its own. */}
+          <p className="mt-0.5 text-[13px] leading-snug text-muted">
+            {[
+              `${draft.people.length} ${draft.people.length === 1 ? "person" : "people"}`,
+              draft.county ? `${draft.county.name}, ${draft.county.state}` : null,
+              monthYear(draft.requestedEffective),
+              draft.householdIncome !== null ? money(draft.householdIncome) : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </Inset>
+
+        {plans.length === 0 ? (
+          <Empty
+            title="No plans returned"
+            body="Check the county and the effective date. Off-exchange plans are not included in this quote."
+          />
+        ) : (
+          <section className="space-y-3">
+            {/* Both dropdowns, not chips.
+                A scrolling row of pills hides its own overflow on a phone —
+                the Gold chip was off the right edge of a 375px screen, which
+                is the same problem as the 40-plan cap: an option nobody can
+                see. A select shows every choice in one tap. */}
+            {metalLevels.length > 1 || carriers.length > 1 ? (
+              <div className="space-y-2 px-4">
+                {metalLevels.length > 1 ? (
+                  <Select
+                    value={metalFilter}
+                    onChange={(e) => setMetalFilter(e.target.value)}
+                    aria-label="Filter by metal level"
+                  >
+                    <option value="">All metal levels</option>
+                    {metalLevels.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </Select>
+                ) : null}
+
+                {carriers.length > 1 ? (
+                  <Select
+                    value={carrierFilter}
+                    onChange={(e) => setCarrierFilter(e.target.value)}
+                    aria-label="Filter by carrier"
+                  >
+                    <option value="">All carriers</option>
+                    {carriers.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="flex items-baseline justify-between px-4">
+              <h2 className="text-[15px] font-semibold text-navy-900">
+                {filtered ? `${shown.length} of ${plans.length} plans` : `${plans.length} plans`}
+              </h2>
+              <span className="text-[12px] text-muted">cheapest net first</span>
+            </div>
+
+            {/* The two filters are independent, so a combination can honestly
+                match nothing — Oscar has no plain Bronze plan for this
+                household. Say which pair is empty and offer the way out. */}
+            {shown.length === 0 ? (
+              <div className="mx-4 rounded-2xl border border-dashed border-line px-6 py-10 text-center">
+                <p className="text-[15px] font-semibold text-navy-900">No plans match</p>
+                <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted">
+                  {carrierFilter && metalFilter
+                    ? `${carrierFilter} has no ${metalFilter} plan for this household.`
+                    : "Nothing matches that filter."}
+                </p>
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="tap mt-3 text-[13px] font-semibold text-navy-700 active:text-navy-900"
+                >
+                  Clear filters
+                </button>
+              </div>
+            ) : null}
+
+            {shown.map((plan) => (
+              <PlanCard
+                className="mx-4 sm:mx-0"
+                key={plan.planId}
+                plan={plan}
+                selected={draft.selectedPlan?.planId === plan.planId}
+                onSelect={() => patch({ selectedPlan: plan })}
+              />
+            ))}
+
+            {draft.selectedPlan ? (
+              <ActionBar>
+                {/* Names the client. A quote page reached with a draft already
+                    in progress otherwise offers "Continue to application" for
+                    whoever that draft belongs to, with nothing saying so. */}
+                <Button onClick={() => router.push("/capture?start=1")}>
+                  {primaryName
+                    ? `Continue ${primaryName}'s application`
+                    : "Continue to application"}
+                  <ArrowRight size={17} aria-hidden />
+                </Button>
+              </ActionBar>
+            ) : null}
+          </section>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -343,6 +501,17 @@ export default function QuotePage() {
           <Search size={17} aria-hidden />
           {quoting ? "Quoting…" : plans ? "Re-run quote" : "See plans"}
         </Button>
+        {/* Back to a list already fetched, without spending another upstream
+            call on inputs that have not changed. */}
+        {plans && !quoting ? (
+          <button
+            type="button"
+            onClick={() => setView("plans")}
+            className="tap mt-2 w-full text-center text-[13px] font-semibold text-navy-700 active:text-navy-900"
+          >
+            Back to {plans.length} plans
+          </button>
+        ) : null}
       </Inset>
 
       {error ? (
@@ -352,113 +521,6 @@ export default function QuotePage() {
         </p>
       ) : null}
 
-      {/* ── Plans ──────────────────────────────────────────────────────── */}
-      {plans ? (
-        plans.length === 0 ? (
-          <Empty
-            title="No plans returned"
-            body="Check the county and the effective date. Off-exchange plans are not included in this quote."
-          />
-        ) : (
-          <section className="space-y-3">
-            <div className="flex items-baseline justify-between px-4">
-              <h2 className="text-[15px] font-semibold text-navy-900">
-                {filtered ? `${shown.length} of ${plans.length} plans` : `${plans.length} plans`}
-              </h2>
-              <span className="text-[12px] text-muted">cheapest net first</span>
-            </div>
-
-            {/* Metal as chips — short, and scannable at a glance. Carrier as a
-                select, because the names are far too long for pills. Only the
-                levels and carriers this household actually has: an empty
-                "Platinum" option is a dead end. */}
-            {metalLevels.length > 1 || carriers.length > 1 ? (
-              <div className="space-y-2 px-4">
-                {metalLevels.length > 1 ? (
-                  <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-                    {["", ...metalLevels].map((level) => (
-                      <button
-                        key={level || "all"}
-                        type="button"
-                        onClick={() => setMetalFilter(level)}
-                        aria-pressed={metalFilter === level}
-                        className={`tap shrink-0 rounded-full px-3.5 text-[13px] font-semibold transition-colors ${
-                          metalFilter === level
-                            ? "bg-navy-900 text-white"
-                            : "bg-white text-navy-700 ring-1 ring-line active:bg-navy-50"
-                        }`}
-                      >
-                        {level || "All levels"}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                {carriers.length > 1 ? (
-                  <Select
-                    value={carrierFilter}
-                    onChange={(e) => setCarrierFilter(e.target.value)}
-                    aria-label="Filter by carrier"
-                  >
-                    <option value="">All carriers</option>
-                    {carriers.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </Select>
-                ) : null}
-              </div>
-            ) : null}
-
-            {/* The two filters are independent, so a combination can honestly
-                match nothing — Cigna has no Gold plan for this household. Say
-                which combination is empty and offer the way out, rather than
-                rendering a blank list. */}
-            {shown.length === 0 ? (
-              <div className="mx-4 rounded-2xl border border-dashed border-line px-6 py-10 text-center">
-                <p className="text-[15px] font-semibold text-navy-900">No plans match</p>
-                <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted">
-                  {carrierFilter && metalFilter
-                    ? `${carrierFilter} has no ${metalFilter} plan for this household.`
-                    : "Nothing matches that filter."}
-                </p>
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="tap mt-3 text-[13px] font-semibold text-navy-700 active:text-navy-900"
-                >
-                  Clear filters
-                </button>
-              </div>
-            ) : null}
-
-            {shown.map((plan) => (
-              <PlanCard
-                className="mx-4 sm:mx-0"
-                key={plan.planId}
-                plan={plan}
-                selected={draft.selectedPlan?.planId === plan.planId}
-                onSelect={() => patch({ selectedPlan: plan })}
-              />
-            ))}
-
-            {draft.selectedPlan ? (
-              <ActionBar>
-                {/* Names the client. A quote page reached with a draft already
-                    in progress otherwise offers "Continue to application" for
-                    whoever that draft belongs to, with nothing saying so. */}
-                <Button onClick={() => router.push("/capture?start=1")}>
-                  {primaryName
-                    ? `Continue ${primaryName}'s application`
-                    : "Continue to application"}
-                  <ArrowRight size={17} aria-hidden />
-                </Button>
-              </ActionBar>
-            ) : null}
-          </section>
-        )
-      ) : null}
     </div>
   );
 }
