@@ -84,6 +84,24 @@ async function cmsGet<T>(path: string, params: Record<string, string>): Promise<
   if (res.status === 429) {
     throw new CmsError(429, "Too many coverage lookups just now. Try again in a moment.");
   }
+  if (res.status === 400) {
+    /* CMS's own validation. The one that matters is the plan year: it rejects
+     * a year it has not published yet — `year=2027` returns "Invalid market
+     * year" — and during open enrollment a January effective date is the
+     * NORMAL choice, so this is not an edge case, it is the busiest month of
+     * the year. Reported specifically so the agent is told the data does not
+     * exist rather than that something broke. */
+    const detail = await res.text().catch(() => "");
+    if (/market year/i.test(detail)) {
+      throw new CmsError(
+        422,
+        "CMS has not published formulary and network data for that plan year yet.",
+        detail.slice(0, 200),
+      );
+    }
+    console.error(`[cms] 400 on ${path}: ${detail.slice(0, 200)}`);
+    throw new CmsError(502, "The coverage lookup was rejected.");
+  }
   if (!res.ok) {
     console.error(`[cms] ${res.status} on ${path}`);
     throw new CmsError(502, "The coverage lookup failed.");

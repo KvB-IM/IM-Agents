@@ -134,7 +134,7 @@ export default function CoverageCheck({
     <Card>
       <CardHeader
         title="Check a drug or doctor"
-        hint="Answers come from what the carrier published with CMS, so it is a guide, not a guarantee."
+        hint="Answers come from what the carrier published with CMS, so it is a guide, not a guarantee. Some carriers publish nothing, which shows as “not published” rather than “not covered”."
       />
 
       <div className="space-y-3 px-4 pb-4">
@@ -232,6 +232,14 @@ export default function CoverageCheck({
         {/* CMS wants the COMPLETE, correctly spelled name — a partial word is
             unreliable and a typo returns nothing at all — so the advice is to
             type the whole thing rather than to try harder. */}
+        {(drugHits && drugHits.length > 0) || (providerHits && providerHits.length > 0) ? (
+          <p className="text-[12px] text-muted">
+            {(drugHits?.length ?? providerHits?.length ?? 0)} match
+            {(drugHits?.length ?? providerHits?.length ?? 0) === 1 ? "" : "es"} — closest first,
+            scroll for more.
+          </p>
+        ) : null}
+
         {drugHits?.length === 0 || providerHits?.length === 0 ? (
           <p className="text-[12px] leading-snug text-muted">
             {mode === "drug"
@@ -263,9 +271,14 @@ export default function CoverageCheck({
         {/* Results are a list of exact products — "Metformin 500 mg" is a
             different formulary entry from "Metformin XR 500 mg", and picking
             the wrong one answers a question the client did not ask. */}
+        {/* Scrolls rather than truncating. It was capped at 12 with nothing
+            saying so, which for "insulin" — 140 products in the catalogue, 40
+            returned after ranking — looked like the search only half worked.
+            The ranking puts the likely product at the top; the rest are still
+            reachable. */}
         {drugHits && drugHits.length > 0 ? (
-          <ul className="divide-y divide-line rounded-xl ring-1 ring-line">
-            {drugHits.slice(0, 12).map((hit) => (
+          <ul className="max-h-80 divide-y divide-line overflow-y-auto rounded-xl ring-1 ring-line">
+            {drugHits.map((hit) => (
               <li key={hit.rxcui}>
                 <button
                   type="button"
@@ -283,8 +296,8 @@ export default function CoverageCheck({
         ) : null}
 
         {providerHits && providerHits.length > 0 ? (
-          <ul className="divide-y divide-line rounded-xl ring-1 ring-line">
-            {providerHits.slice(0, 12).map((hit) => (
+          <ul className="max-h-80 divide-y divide-line overflow-y-auto rounded-xl ring-1 ring-line">
+            {providerHits.map((hit) => (
               <li key={hit.npi}>
                 <button
                   type="button"

@@ -69,6 +69,12 @@ export function readStatus(raw: unknown): CoverageStatus {
       return "generic";
     case "NotCovered":
       return "not_covered";
+    /* The carrier filed no formulary for this plan. Named explicitly rather
+     * than left to the default because it is COMMON, not exceptional: 23 of
+     * 97 Georgia plans answer this way for a drug that 74 of them cover. It
+     * means "no answer", exactly like a missing row — never "not covered". */
+    case "DataNotProvided":
+      return "unknown";
     default:
       /* Anything unrecognised is unknown rather than a guess. CMS adding a
        * value must not turn into a confident wrong answer at a kitchen table. */

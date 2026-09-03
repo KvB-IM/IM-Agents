@@ -52,6 +52,14 @@ test("CMS's three statuses map across, and anything else is unknown", () => {
   assert.equal(readStatus(null), "unknown");
 });
 
+test("DataNotProvided is a real, common answer and it means unknown", () => {
+  /* 23 of 97 Georgia plans return this for a drug 74 of them cover. Reading it
+     as an exclusion would tell a quarter of that market's clients their
+     medication is off the formulary when the carrier simply filed nothing. */
+  assert.equal(readStatus("DataNotProvided"), "unknown");
+  assert.notEqual(readStatus("DataNotProvided"), "not_covered");
+});
+
 test("a plan CMS did not answer for is unknown, NOT not-covered", () => {
   const rows: CoverageRow[] = [{ planId: "planA", itemId: "861012", status: "covered" }];
   const index = indexCoverage(rows);
