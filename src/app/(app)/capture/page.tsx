@@ -1,17 +1,27 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, Send, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import {
+  AlertCircle,
+  Send,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  X,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
 import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Empty, Inset } from "@/components/ui";
-import { money, monthYear } from "@/lib/format";
+import { money, monthYear, shortDate } from "@/lib/format";
 import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
 import { effectiveHouseholdSize } from "@/lib/household";
 import LicenseCapture from "@/components/LicenseCapture";
 import ReviewSummary from "@/components/ReviewSummary";
+import { buildSections } from "@/lib/reviewRows.ts";
 import * as PL from "@/lib/picklists";
 import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
 import type { Jot } from "@/lib/types";
@@ -31,9 +41,34 @@ import type { Jot } from "@/lib/types";
 const STEPS = ["Applicant", "Address", "Household", "Income", "Coverage", "Review"] as const;
 
 export default function CapturePage() {
+  /* useSearchParams needs a Suspense boundary above it. */
+  return (
+    <Suspense fallback={null}>
+      <Capture />
+    </Suspense>
+  );
+}
+
+function Capture() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { draft, patch, patchPerson, loaded, reset } = useDraft();
   const [step, setStep] = useState(0);
+  /**
+   * Is the form OPEN for editing?
+   *
+   * Reopening a saved application used to drop straight into the editable
+   * stepper, which is wrong twice over: an agent tapping Application to check
+   * what is on a form should not be one stray keystroke away from altering it,
+   * and there was no way back out — no Close, so the only exit was another tab,
+   * and returning reopened the same fields again.
+   *
+   * So arriving cold shows what the application holds and asks. `?start=1`
+   * skips the gate, because coming from "Continue to application" on the quote
+   * IS the decision to start filling it in.
+   */
+  const [editing, setEditing] = useState(searchParams.get("start") === "1");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<Jot | null>(null);
@@ -180,15 +215,134 @@ export default function CapturePage() {
     );
   }
 
+  // ── Saved application, opened cold ───────────────────────────────────────
+  if (!editing) {
+    const sections = buildSections(draft);
+    const unanswered = sections.flatMap((sec) => sec.rows).filter((r) => r.missing).length;
+    const name = [primary?.firstName, primary?.lastName].filter(Boolean).join(" ");
+
+    return (
+      <div className="space-y-4">
+        <Inset>
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-[22px] font-bold leading-tight tracking-tight text-navy-900">
+              {name || "Application in progress"}
+            </h1>
+            {/* Leaves the draft alone. It is saved either way — this is a
+                door out of the screen, not a discard. */}
+            <button
+              type="button"
+              onClick={() => router.push("/pipeline")}
+              aria-label="Close"
+              className="tap -mr-1 -mt-1 flex w-10 shrink-0 items-center justify-center rounded-lg text-muted active:bg-navy-50"
+            >
+              <X size={20} aria-hidden />
+            </button>
+          </div>
+          <p className="mt-0.5 text-[13px] text-muted">
+            Not submitted. Saved on this device{" "}
+            {draft.updatedAt ? `· last edited ${shortDate(draft.updatedAt)}` : ""}
+          </p>
+        </Inset>
+
+        <Card>
+          <CardHeader title="What is on it so far" />
+          <dl className="divide-y divide-line px-4 pb-2">
+            {[
+              ["Plan", draft.selectedPlan.planName],
+              ["Carrier", draft.selectedPlan.carrier],
+              ["Net to client", `${money(draft.selectedPlan.netPremium)}/mo`],
+              ["Effective", monthYear(draft.requestedEffective)],
+              ["People on the form", String(draft.people.length)],
+              ["County", draft.county ? `${draft.county.name}, ${draft.county.state}` : "—"],
+            ].map(([k, v]) => (
+              <div key={k} className="flex items-baseline justify-between gap-4 py-2.5">
+                <dt className="text-[13px] text-muted">{k}</dt>
+                <dd className="text-right text-[13px] font-medium text-navy-900">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="border-t border-line px-4 py-3 text-[12px] leading-snug text-muted">
+            {unanswered === 0
+              ? "Every question is answered. Open it to review and submit."
+              : `${unanswered} ${unanswered === 1 ? "question is" : "questions are"} still unanswered.`}
+          </p>
+        </Card>
+
+        <Inset className="space-y-2">
+          <Button onClick={() => setEditing(true)}>
+            <Pencil size={16} aria-hidden /> Open and continue
+          </Button>
+
+          {/* Two taps, on purpose. This is the only copy of an application an
+              agent may have spent twenty minutes on with a client. */}
+          {confirmDiscard ? (
+            <div className="rounded-xl bg-error/5 px-3.5 py-3 ring-1 ring-error/20">
+              <p className="text-[13px] font-medium text-navy-900">
+                Discard this application?
+              </p>
+              <p className="mt-0.5 text-[12px] leading-snug text-muted">
+                Everything captured for {name || "this client"} is deleted from this device. It
+                cannot be recovered.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmDiscard(false)}
+                  className="!w-auto flex-1"
+                >
+                  Keep it
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    reset();
+                    setConfirmDiscard(false);
+                    setStep(0);
+                  }}
+                  className="!w-auto flex-1"
+                >
+                  Discard
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="secondary" onClick={() => setConfirmDiscard(true)}>
+              <Trash2 size={16} aria-hidden /> Discard and start over
+            </Button>
+          )}
+        </Inset>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* ── Stepper ────────────────────────────────────────────────────── */}
       <Inset>
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between gap-3">
           <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Application</h1>
-          <span className="text-[12px] font-medium text-muted">
-            {step + 1} of {STEPS.length}
-          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="text-[12px] font-medium text-muted">
+              {step + 1} of {STEPS.length}
+            </span>
+            {/* Closes the form without discarding it. Its absence was the
+                reason an opened application felt like a trap: the only way
+                out was the tab bar, which reopened it on the way back. */}
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                /* Drop ?start=1, or a refresh after closing would reopen the
+                   form in edit mode — the exact thing Close just undid. */
+                router.replace("/capture");
+              }}
+              aria-label="Close the application"
+              className="tap -mr-1 flex w-9 items-center justify-center rounded-lg text-muted active:bg-navy-50"
+            >
+              <X size={20} aria-hidden />
+            </button>
+          </div>
         </div>
         <div className="mt-2 flex gap-1" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={STEPS.length}>
           {STEPS.map((s, i) => (

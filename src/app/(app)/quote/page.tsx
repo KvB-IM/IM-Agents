@@ -275,7 +275,7 @@ export default function QuotePage() {
 
             {draft.selectedPlan ? (
               <ActionBar>
-                <Button onClick={() => router.push("/capture")}>
+                <Button onClick={() => router.push("/capture?start=1")}>
                   Continue to application
                   <ArrowRight size={17} aria-hidden />
                 </Button>
