@@ -37,36 +37,69 @@ export function fixtureCounties(zip: string): County[] {
 export function fixturePlans(householdSize: number, income: number | null, totalAge: number): QuotedPlan[] {
   const base = 320 + totalAge * 6 + (householdSize - 1) * 180;
 
+  /* The plan fields the real response carries but a fixture has no source
+   * for. Shaped like live data (cost-share summaries are verbatim carrier
+   * strings) so the UI is exercised the same way offline. */
+  const extras = (
+    pcp: string,
+    spec: string,
+    rx: string,
+    dedFamily: number,
+    moopFamily: number,
+  ) => ({
+    deductibleFamily: dedFamily,
+    moopFamily,
+    primaryCare: pcp,
+    specialist: spec,
+    urgentCare: "$75 copay",
+    genericRx: rx,
+    isStandardized: false,
+    networkName: "Fixture Network",
+    sbcUrl: "",
+    formularyUrl: "",
+    networkUrl: "",
+    brochureUrl: "",
+    issuerPhone: "",
+    ratingArea: "4",
+    releaseId: "fixture",
+  });
+
   const shapes: Array<Omit<QuotedPlan, "premium" | "aptc" | "netPremium">> = [
     {
       planId: "hs-plan-bronze-1", planName: "Ambetter Essential Care 1 HSA", carrier: "Ambetter",
       metalLevel: "Bronze", planHiosId: "12345AZ0010001", carrierHiosId: "12345",
       deductible: 7500, moop: 9450, planType: "HMO", hsaEligible: true,
+      ...extras("$60 copay", "$120 copay", "$25 copay", 15000, 18900),
     },
     {
       planId: "hs-plan-bronze-2", planName: "Blue Cross Bronze B07S", carrier: "Blue Cross Blue Shield",
       metalLevel: "Bronze", planHiosId: "54321AZ0020003", carrierHiosId: "54321",
       deductible: 6900, moop: 9200, planType: "PPO", hsaEligible: false,
+      ...extras("$50 copay", "$100 copay", "$20 copay", 13800, 18400),
     },
     {
       planId: "hs-plan-silver-1", planName: "Ambetter Balanced Care 4", carrier: "Ambetter",
       metalLevel: "Silver", planHiosId: "12345AZ0010007", carrierHiosId: "12345",
       deductible: 4500, moop: 8700, planType: "HMO", hsaEligible: false,
+      ...extras("$35 copay", "$75 copay", "$15 copay", 9000, 17400),
     },
     {
       planId: "hs-plan-silver-2", planName: "Oscar Silver Simple", carrier: "Oscar Health",
       metalLevel: "Silver", planHiosId: "77777AZ0030002", carrierHiosId: "77777",
       deductible: 4000, moop: 8200, planType: "EPO", hsaEligible: false,
+      ...extras("$30 copay", "$70 copay", "$15 copay", 8000, 16400),
     },
     {
       planId: "hs-plan-gold-1", planName: "Blue Cross Gold B02S", carrier: "Blue Cross Blue Shield",
       metalLevel: "Gold", planHiosId: "54321AZ0020009", carrierHiosId: "54321",
       deductible: 1500, moop: 6800, planType: "PPO", hsaEligible: false,
+      ...extras("$20 copay", "$50 copay", "$10 copay", 3000, 13600),
     },
     {
       planId: "hs-plan-gold-2", planName: "Oscar Gold Classic", carrier: "Oscar Health",
       metalLevel: "Gold", planHiosId: "77777AZ0030008", carrierHiosId: "77777",
       deductible: 1200, moop: 6500, planType: "EPO", hsaEligible: false,
+      ...extras("$15 copay", "$45 copay", "$10 copay", 2400, 13000),
     },
   ];
 

@@ -145,6 +145,40 @@ export interface SelectedPlan {
   netPremium: number;
   deductible: number | null;
   moop: number | null;
+
+  /* ── Everything below was in every quote response and thrown away ────────
+   * All of these came back populated on 85 of 85 live Maricopa AZ plans
+   * (documents.payment_url 61/85, issuer phones 80/85). They cost no extra
+   * API call, and the cost-share summaries in particular are the questions a
+   * client actually asks: "what do I pay to see my doctor". */
+
+  /** Family annual deductible. The number that matters to a household. */
+  deductibleFamily: number | null;
+  /** Family maximum out-of-pocket. */
+  moopFamily: number | null;
+  /** Cost-share summaries, verbatim from the carrier, e.g. "$50 copay". */
+  primaryCare: string;
+  specialist: string;
+  urgentCare: string;
+  genericRx: string;
+  /** Whether the plan follows a CMS- or state-defined standardized design. */
+  isStandardized: boolean;
+  /** Network identity. Two networks from one carrier are otherwise
+   *  indistinguishable on the card. */
+  networkName: string;
+  /** Carrier documents. `formulary` and `network` are what an agent opens
+   *  today to answer "is my drug/doctor covered" by hand. */
+  sbcUrl: string;
+  formularyUrl: string;
+  networkUrl: string;
+  brochureUrl: string;
+  /** Carrier's customer-service line. */
+  issuerPhone: string;
+  /** Rating area — explains why two neighbouring ZIPs price differently. */
+  ratingArea: string;
+  /** Which HealthSherpa data release produced this quote. Worth quoting to
+   *  support when a premium looks wrong. */
+  releaseId: string;
 }
 
 export interface QuotedPlan extends SelectedPlan {

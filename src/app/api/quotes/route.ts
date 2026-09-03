@@ -37,14 +37,26 @@ interface HsPlan {
   name?: string;
   display_name?: string;
   api_enrollable?: boolean;
-  issuer?: { issuer_id?: string; name?: string };
-  network?: { type?: string };
+  issuer?: {
+    issuer_id?: string;
+    name?: string;
+    customer_service_phone?: string | null;
+  };
+  network?: { network_id?: string; name?: string; type?: string; network_url?: string | null };
   pricing?: {
     gross_premium?: string;
     net_premium?: string;
     subsidy_applied?: string;
     max_aptc?: string | null;
   };
+  documents?: {
+    sbc_url?: string | null;
+    formulary_url?: string | null;
+    network_url?: string | null;
+    brochure_url?: string | null;
+  };
+  availability?: { rating_area?: string | null };
+  release?: { release_id?: string };
   details?: {
     metal_level?: string;
     plan_type?: string;
@@ -55,7 +67,16 @@ interface HsPlan {
     moop_family?: string;
     csr_level?: string | null;
     is_standardized?: boolean;
+    primary_care_summary?: string | null;
+    specialist_summary?: string | null;
+    urgent_care_summary?: string | null;
+    generic_rx_summary?: string | null;
   };
+}
+
+/** A nullable string field, normalised to "" so the UI never renders "null". */
+function text(v: unknown): string {
+  return typeof v === "string" && v.trim() !== "" ? v : "";
 }
 
 /** Money arrives as a string like "395.66". Guard before coercing: Number("")
@@ -114,6 +135,24 @@ function normalizePlan(p: HsPlan): QuotedPlan {
     moop: money(details.moop_individual),
     planType: (details.plan_type ?? p.network?.type ?? "").toUpperCase(),
     hsaEligible: details.hsa_eligible === true,
+
+    /* Was all being discarded. Present on every live plan, at no extra
+     * request — see the comment on SelectedPlan in lib/types.ts. */
+    deductibleFamily: money(details.deductible_family),
+    moopFamily: money(details.moop_family),
+    primaryCare: text(details.primary_care_summary),
+    specialist: text(details.specialist_summary),
+    urgentCare: text(details.urgent_care_summary),
+    genericRx: text(details.generic_rx_summary),
+    isStandardized: details.is_standardized === true,
+    networkName: text(p.network?.name),
+    sbcUrl: text(p.documents?.sbc_url),
+    formularyUrl: text(p.documents?.formulary_url),
+    networkUrl: text(p.documents?.network_url ?? p.network?.network_url),
+    brochureUrl: text(p.documents?.brochure_url),
+    issuerPhone: text(p.issuer?.customer_service_phone),
+    ratingArea: text(p.availability?.rating_area),
+    releaseId: text(p.release?.release_id),
   };
 }
 
@@ -206,18 +245,65 @@ export async function POST(request: NextRequest) {
       applicants,
     },
     sort: { field: "premium", direction: "asc" },
-    page: { number: 1, size: 40 },
   };
 
   try {
-    const data = (await hsFetch("/v1/quotes", {
-      method: "POST",
-      body: JSON.stringify(quoteRequest),
-    })) as { plans?: HsPlan[] };
+    /**
+     * Every page, not the first one.
+     *
+     * This asked for `page: { number: 1, size: 40 }` and returned whatever
+     * came back, which looked like "the market has 40 plans". It does not.
+     * The same household in Maricopa AZ has 85, and because the sort is
+     * premium ascending, the 45 being dropped were the expensive end: ALL 26
+     * Gold plans and 18 of the 30 Silvers. An agent sitting with a client who
+     * has a chronic condition could not see a single Gold plan, and nothing on
+     * screen suggested one existed.
+     *
+     * `meta.result_count` does not help — it counts the rows on the page, not
+     * the market — so exhaustion is the only way to know we have them all: keep
+     * asking until a page comes back short.
+     */
+    const plans: QuotedPlan[] = [];
+    const warnings: string[] = [];
+    const PAGE_SIZE = 100;
+    /* A bound, so a pathological county cannot turn one quote into twenty
+     * upstream calls while an agent waits. */
+    const MAX_PAGES = 4;
+    let truncated = false;
 
-    const plans: QuotedPlan[] = (data.plans ?? []).map(normalizePlan);
+    for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+      const data = (await hsFetch("/v1/quotes", {
+        method: "POST",
+        body: JSON.stringify({
+          ...quoteRequest,
+          page: { number: pageNumber, size: PAGE_SIZE },
+        }),
+      })) as { plans?: HsPlan[]; meta?: { warnings?: string[] } };
 
-    return NextResponse.json({ plans, fixture: false });
+      const batch = data.plans ?? [];
+      plans.push(...batch.map(normalizePlan));
+
+      /* Non-fatal advisories about our own request. Discarding them meant
+       * HealthSherpa could tell us something was wrong and nobody would ever
+       * see it. */
+      for (const w of data.meta?.warnings ?? []) {
+        if (!warnings.includes(w)) warnings.push(w);
+      }
+
+      if (batch.length < PAGE_SIZE) break;
+      if (pageNumber === MAX_PAGES) truncated = true;
+    }
+
+    if (warnings.length > 0) {
+      console.warn(`[quotes] HealthSherpa advisories: ${warnings.join(" | ")}`);
+    }
+    if (truncated) {
+      console.warn(
+        `[quotes] hit the ${MAX_PAGES}-page cap for ${zip}/${fips} — ${plans.length} plans returned, there may be more`,
+      );
+    }
+
+    return NextResponse.json({ plans, fixture: false, warnings, truncated });
   } catch (err) {
     if (err instanceof HealthSherpaUpstreamError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.status === 429 ? 429 : 502 });
