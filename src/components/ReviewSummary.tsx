@@ -30,11 +30,14 @@ import type { CaptureDraft } from "@/lib/types";
 export default function ReviewSummary({
   draft,
   onEdit,
+  heldSsnKeys = [],
 }: {
   draft: CaptureDraft;
   onEdit: (step: number) => void;
+  /** People whose SSN is on the server from a resumed draft, not in the browser. */
+  heldSsnKeys?: string[];
 }) {
-  const sections = buildSections(draft);
+  const sections = buildSections(draft, { heldSsnKeys });
   const unanswered = sections.flatMap((s) => s.rows).filter((r) => r.missing).length;
 
   return (

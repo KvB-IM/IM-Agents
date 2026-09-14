@@ -7,7 +7,18 @@ import { isUpstreamError } from "@/lib/zoho";
 import { ssnConfirmed, ssnDigits, ssnProblem } from "@/lib/ssn";
 import { recordAttempt, settleAttempt } from "@/lib/submissions";
 import { clientIpFrom } from "@/lib/auth";
-import type { CaptureDraft } from "@/lib/types";
+import {
+  createEnrollmentSession,
+  draftToEnrollmentSession,
+  hsHandoffEnabled,
+  hsMockEnabled,
+  isEnrollmentFlow,
+} from "@/lib/enrollmentSession";
+import { hsConfigured, HealthSherpaUpstreamError } from "@/lib/healthsherpa";
+import { isEnrollmentPath } from "@/lib/types";
+import { heldSsns, markSubmitted, isDraftId } from "@/lib/drafts";
+import { mergeSsns } from "@/lib/draftSsn";
+import type { CaptureDraft, EnrollmentPath } from "@/lib/types";
 
 /** GET /api/enrollments → this agent's own Jots. */
 export async function GET() {
@@ -40,15 +51,30 @@ export async function POST(request: NextRequest) {
   if (!agent) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   const scope = AgentScope.forAgent(agent.id, agent.name);
 
-  let body: { draft?: CaptureDraft; submissionKey?: string };
+  let body: { draft?: CaptureDraft; submissionKey?: string; path?: unknown };
   try {
-    body = (await request.json()) as { draft?: CaptureDraft; submissionKey?: string };
+    body = (await request.json()) as {
+      draft?: CaptureDraft;
+      submissionKey?: string;
+      path?: unknown;
+    };
   } catch {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
-  const draft = body.draft;
+  let draft = body.draft;
   const submissionKey = body.submissionKey;
+
+  /* Absent defaults to "office" — the historical path, and the one that hands
+   * nothing to an outside service. An unrecognised value is rejected rather
+   * than coerced: silently filing an intended HealthSherpa handoff as an office
+   * form would put the wrong Form_Type on the record and the office would work
+   * a form the agent had already enrolled. */
+  const requestedPath = body.path ?? "office";
+  if (!isEnrollmentPath(requestedPath)) {
+    return NextResponse.json({ error: "Unrecognised enrollment path." }, { status: 400 });
+  }
+  const path: EnrollmentPath = requestedPath;
 
   if (!draft) return NextResponse.json({ error: "A draft is required." }, { status: 400 });
   if (!submissionKey || submissionKey.length > 128) {
@@ -69,6 +95,21 @@ export async function POST(request: NextRequest) {
   }
   if (!draft.requestedEffective) {
     return NextResponse.json({ error: "A requested effective date is required." }, { status: 400 });
+  }
+
+  /* ── Held SSNs ──────────────────────────────────────────────────────────
+   * A resumed draft arrives with blank SSN fields: the number was saved to
+   * the server-side draft, encrypted, and is never returned to a browser. It
+   * is merged in HERE, before validation, so the checks below see a complete
+   * application. A typed value wins over a held one; an attestation of "never
+   * issued" is left alone. Non-fatal — if the lookup fails, validation runs on
+   * what the browser sent and asks for the SSN the ordinary way. */
+  if (isDraftId(draft.id)) {
+    try {
+      draft = mergeSsns(draft, await heldSsns(agent.id, draft.id));
+    } catch (err) {
+      console.error("[enrollments] held-SSN merge failed:", err);
+    }
   }
 
   /* SSN is required for everyone seeking coverage, and must match its
@@ -95,9 +136,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  /* ── Can the handoff actually happen? ─────────────────────────────────────
+   * Checked HERE, before the Jot is written, so a handoff that cannot work
+   * fails with nothing half-done and the agent can file to the office instead.
+   * Discovering it after the create would leave a record marked "enrolled in
+   * the field" for a client nobody enrolled.
+   *
+   * The flag is re-checked server-side on purpose. The review screen hides the
+   * button when it is off, but the browser is not the boundary. */
+  if (path === "healthsherpa") {
+    if (!hsHandoffEnabled()) {
+      return NextResponse.json(
+        { error: "The HealthSherpa handoff is not switched on. File to the office instead." },
+        { status: 409 },
+      );
+    }
+    if (!hsConfigured() && !hsMockEnabled()) {
+      return NextResponse.json(
+        { error: "HealthSherpa is not connected. File to the office instead." },
+        { status: 409 },
+      );
+    }
+  }
+
   // The allowlist and the server-side attribution both live in draftToJot.
   // Whatever comes back is what reaches the CRM verbatim.
-  const payload = draftToJot(draft, agent, submissionKey);
+  const payload = draftToJot(draft, agent, submissionKey, path);
 
   // ── Dry run ───────────────────────────────────────────────────────────────
   // Returns the exact Zoho payload without writing it. Written for the same
@@ -107,11 +171,59 @@ export async function POST(request: NextRequest) {
   //
   // Hard-gated off in production — the payload contains SSNs, and an endpoint
   // that echoes them back is not something to leave reachable on a deploy.
-  if (
-    new URL(request.url).searchParams.get("dryRun") === "1" &&
-    process.env.NODE_ENV !== "production"
-  ) {
-    return NextResponse.json({ dryRun: true, module: "JOTS", payload });
+  const params = new URL(request.url).searchParams;
+  if (params.get("dryRun") === "1" && process.env.NODE_ENV !== "production") {
+    const probeFormId = String(payload.Name ?? "");
+    /* `flow=` lets the probe try the OTHER flow without changing the default
+     * the live path uses. Dev-only, like everything in this branch. */
+    const flowParam = params.get("flow");
+    const probeFlow = isEnrollmentFlow(flowParam) ? flowParam : undefined;
+    const session =
+      path === "healthsherpa"
+        ? draftToEnrollmentSession(draft, probeFormId, probeFlow)
+        : undefined;
+
+    /* ── Forwarding probe: dryRun=1&forward=1 ─────────────────────────────
+     * Sends the session payload to HealthSherpa FOR REAL and writes NOTHING to
+     * Zoho. It exists because the only other way to find out whether
+     * HealthSherpa accepts our payload is to file a production Jot first — the
+     * live path is Jot-then-handoff on purpose — and a test record in the
+     * office's queue is not an acceptable price for a contract check.
+     *
+     * Safe to run repeatedly: an enrollment session "does not create direct
+     * enrollment application records" (their words), so a probe leaves a
+     * pre-filled deep link on their side and nothing else. Dev-only, like the
+     * rest of dryRun. Skipped when the mock is on — there would be nothing to
+     * learn. */
+    let forwarded: unknown;
+    if (session && params.get("forward") === "1" && !hsMockEnabled()) {
+      try {
+        forwarded = {
+          ok: true,
+          links: await createEnrollmentSession(draft, probeFormId, probeFlow),
+        };
+      } catch (e) {
+        forwarded = {
+          ok: false,
+          status: e instanceof HealthSherpaUpstreamError ? e.status : null,
+          message: e instanceof HealthSherpaUpstreamError ? e.userMessage : String(e),
+          /* The upstream body verbatim — this is the field to read when the
+           * answer is 400: it names the offending key. */
+          detail: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+
+    return NextResponse.json({
+      dryRun: true,
+      module: "JOTS",
+      path,
+      payload,
+      /* The session payload is the half a dry run could not previously show,
+       * and it is the half that has never been accepted by HealthSherpa. */
+      ...(session ? { session } : {}),
+      ...(forwarded !== undefined ? { forwarded } : {}),
+    });
   }
 
   /* ── Replay buffer ────────────────────────────────────────────────────────
@@ -143,7 +255,51 @@ export async function POST(request: NextRequest) {
      * resolved to the record already filed — either way the application is in
      * the CRM and is not what reconciliation is looking for. */
     if (buffered) await settleAttempt(formId, "success", { zohoId: jot.id });
-    return NextResponse.json({ jot }, { status: 201 });
+    /* The draft reached the CRM: no longer offered for resume, purged after
+     * the retention window. Non-fatal inside. */
+    if (isDraftId(draft.id)) await markSubmitted(agent.id, draft.id, jot.id);
+
+    if (path !== "healthsherpa") {
+      return NextResponse.json({ jot }, { status: 201 });
+    }
+
+    /* ── The handoff ──────────────────────────────────────────────────────────
+     * Deliberately AFTER the Jot exists. Handing a client to HealthSherpa is
+     * the un-undoable step, and doing it first would risk an application being
+     * worked over there with nothing in the CRM pointing at it — an orphan with
+     * no symptom, while the client sits at the table.
+     *
+     * `Name` is passed as `external_id`, so the CRM record and the HealthSherpa
+     * session carry ONE identifier and a rep can search either system with it.
+     *
+     * A failure here is NOT a failed submission. The Jot is filed and correct;
+     * only the convenience of a pre-filled browser is missing, and the agent
+     * can enroll on HealthSherpa unaided. So this returns 201 with the record
+     * and says what went wrong, rather than an error that would read as "your
+     * application did not save" and send the agent through six steps again. */
+    if (hsMockEnabled()) {
+      return NextResponse.json(
+        { jot, mock: true, session: draftToEnrollmentSession(draft, formId) },
+        { status: 201 },
+      );
+    }
+
+    try {
+      const links = await createEnrollmentSession(draft, formId);
+      return NextResponse.json({ jot, links }, { status: 201 });
+    } catch (hsErr) {
+      const detail =
+        hsErr instanceof HealthSherpaUpstreamError ? hsErr.userMessage : String(hsErr);
+      console.error("[enrollments] handoff failed:", detail);
+      return NextResponse.json(
+        {
+          jot,
+          handoffError:
+            "The form is filed, but HealthSherpa could not be opened with it pre-filled. Enroll the client on HealthSherpa directly — quote the form ID to the office.",
+        },
+        { status: 201 },
+      );
+    }
   } catch (err) {
     if (isUpstreamError(err)) {
       // The detail is logged; the agent sees only the sentence written for a

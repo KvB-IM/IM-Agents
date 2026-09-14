@@ -1,19 +1,59 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { CaptureDraft, Person } from "@/lib/types";
 import { defaultEffectiveDate } from "@/lib/age";
 
 /**
  * The in-progress application.
  *
- * PROTOTYPE: held in sessionStorage so it survives navigation between the
- * quote and the application, and a reload. The real thing is a server-side
- * draft with an expiry (SOFTWARE_SCOPE.md 4.3) — an unsubmitted draft holds
- * SSNs, and sessionStorage is the wrong place for those on a shared iPad.
+ * Working copy in sessionStorage, so it survives navigation and a reload with
+ * no network. MIRRORED to the server on every change (debounced), which is
+ * what makes it survive a dropped connection, a dead battery, or a different
+ * iPad — and what keeps the SSNs from existing only in a browser: the server
+ * encrypts them apart from the rest and never sends them back. On a device
+ * with nothing useful saved, the agent's most recent open draft is offered
+ * back on load, minus those SSNs, which are merged in server-side at submit.
+ * Scope section 4.3; lib/drafts.ts.
  */
 
 const KEY = "im-agent-draft-v1";
+const MIRROR_DEBOUNCE_MS = 1500;
+
+/**
+ * Has anything worth keeping been typed? Gates both the mirror (so every
+ * page view does not write an empty row) and resume (so an untouched local
+ * draft does not block a real one from the server).
+ */
+function hasWork(d: CaptureDraft): boolean {
+  return Boolean(
+    d.zip ||
+      d.selectedPlan ||
+      d.householdIncome !== null ||
+      d.people.some((p) => p.firstName || p.lastName || p.dateOfBirth),
+  );
+}
+
+/**
+ * Merge defaults at BOTH levels. Spreading only at the draft level left people
+ * objects exactly as they were saved, so a field added to Person after a draft
+ * was stored came back undefined — `ssnConfirm` did exactly that. Every future
+ * field has the same problem, so the fix lives here, and applies to a draft
+ * from sessionStorage and one from the server alike.
+ */
+function withDefaults(saved: CaptureDraft): CaptureDraft {
+  const base = emptyDraft();
+  return {
+    ...base,
+    ...saved,
+    people: (saved.people ?? []).map((person) => ({
+      ...emptyPerson(person.relation ?? "primary"),
+      ...person,
+      // Keep the saved key so React identity and the SSN inputs survive.
+      key: person.key ?? crypto.randomUUID(),
+    })),
+  };
+}
 
 export function emptyPerson(relation: Person["relation"]): Person {
   return {
@@ -72,6 +112,9 @@ export function emptyDraft(): CaptureDraft {
     americanIndianAkNative: "",
     medicaidChipDenied90d: "",
     employerCoverageOffer: "",
+    unemployment: "",
+    parentCaretaker: "",
+    preferredLanguage: "",
     ichraStatus: "",
     form8962Filed: "",
     willFileTaxes: "",
@@ -99,6 +142,12 @@ interface Ctx {
   removePerson: (key: string) => void;
   reset: () => void;
   loaded: boolean;
+  /**
+   * People whose SSN is held on the server for this draft and NOT in the
+   * browser — a resumed draft. The stepper treats a held SSN as satisfied,
+   * the review says "on file", and the submit route merges the number in.
+   */
+  heldSsnKeys: string[];
 }
 
 const DraftCtx = createContext<Ctx | null>(null);
@@ -106,35 +155,47 @@ const DraftCtx = createContext<Ctx | null>(null);
 export function DraftProvider({ children }: { children: React.ReactNode }) {
   const [draft, setDraft] = useState<CaptureDraft>(emptyDraft);
   const [loaded, setLoaded] = useState(false);
+  const [heldSsnKeys, setHeldSsnKeys] = useState<string[]>([]);
 
-  // Rehydrate after mount, not during render — the server has no
-  // sessionStorage and a mismatch would hydrate-error.
+  /* Rehydrate after mount, not during render — the server has no
+   * sessionStorage and a mismatch would hydrate-error. Then, if this device
+   * holds nothing useful, ask the server for the agent's latest open draft. */
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as CaptureDraft;
-        /* Merge defaults at BOTH levels. Spreading only at the draft level left
-         * people objects exactly as they were saved, so a field added to
-         * Person after a draft was stored came back undefined — `ssnConfirm`
-         * did exactly that. Every future field has the same problem, so the
-         * fix belongs here rather than in a one-off migration. */
-        const base = emptyDraft();
-        setDraft({
-          ...base,
-          ...saved,
-          people: (saved.people ?? []).map((person) => ({
-            ...emptyPerson(person.relation ?? "primary"),
-            ...person,
-            // Keep the saved key so React identity and the SSN inputs survive.
-            key: person.key ?? crypto.randomUUID(),
-          })),
-        });
+    let cancelled = false;
+    (async () => {
+      let local: CaptureDraft | null = null;
+      try {
+        const raw = sessionStorage.getItem(KEY);
+        if (raw) local = withDefaults(JSON.parse(raw) as CaptureDraft);
+      } catch {
+        /* corrupt or unavailable storage: start clean rather than fail */
       }
-    } catch {
-      /* corrupt or unavailable storage: start clean rather than fail */
-    }
-    setLoaded(true);
+
+      if (local && hasWork(local)) {
+        if (!cancelled) setDraft(local);
+      } else {
+        try {
+          const res = await fetch("/api/drafts?latest=1", { cache: "no-store" });
+          const data = res.ok
+            ? ((await res.json()) as { draft: CaptureDraft | null; heldSsnKeys?: string[] })
+            : { draft: null };
+          if (cancelled) return;
+          if (data.draft) {
+            setDraft(withDefaults(data.draft));
+            setHeldSsnKeys(data.heldSsnKeys ?? []);
+          } else if (local) {
+            setDraft(local);
+          }
+        } catch {
+          /* offline or no database: the local copy, or a fresh one, is fine */
+          if (!cancelled && local) setDraft(local);
+        }
+      }
+      if (!cancelled) setLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -145,6 +206,42 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
       /* private mode or full quota: the draft still works in memory */
     }
   }, [draft, loaded]);
+
+  /* The mirror. Debounced so a burst of keystrokes is one write; skipped while
+   * nothing has been captured; silent on failure because the browser copy is
+   * still the working one and the next change retries. The response says
+   * which people now have an SSN held, which is all the browser learns. */
+  const mirrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!loaded || !hasWork(draft)) return;
+    if (mirrorTimer.current) clearTimeout(mirrorTimer.current);
+    const snapshot = draft;
+    mirrorTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/drafts/${snapshot.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draft: snapshot }),
+        });
+        if (res.ok && res.status !== 204) {
+          const data = (await res.json()) as { heldSsnKeys?: string[] };
+          if (data.heldSsnKeys) setHeldSsnKeys(data.heldSsnKeys);
+        }
+      } catch {
+        /* offline: sessionStorage has it; the next change retries */
+      }
+    }, MIRROR_DEBOUNCE_MS);
+    return () => {
+      if (mirrorTimer.current) clearTimeout(mirrorTimer.current);
+    };
+  }, [draft, loaded]);
+
+  /* The current id, for reset — which is a stable callback and must not close
+   * over a stale draft. */
+  const idRef = useRef(draft.id);
+  useEffect(() => {
+    idRef.current = draft.id;
+  }, [draft.id]);
 
   const patch = useCallback((p: Partial<CaptureDraft>) => {
     setDraft((d) => ({ ...d, ...p, updatedAt: new Date().toISOString() }));
@@ -171,6 +268,13 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const reset = useCallback(() => {
+    /* Discard the server copy too, so a draft the agent threw away does not
+     * sit in the database holding SSNs for the rest of the retention window.
+     * Fire-and-forget: the server only deletes OPEN drafts, so calling this
+     * after a successful submit leaves the filed record alone. */
+    const discarded = idRef.current;
+    void fetch(`/api/drafts/${discarded}`, { method: "DELETE" }).catch(() => {});
+    setHeldSsnKeys([]);
     const fresh = emptyDraft();
     setDraft(fresh);
     try {
@@ -181,7 +285,9 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <DraftCtx.Provider value={{ draft, patch, patchPerson, addPerson, removePerson, reset, loaded }}>
+    <DraftCtx.Provider
+      value={{ draft, patch, patchPerson, addPerson, removePerson, reset, loaded, heldSsnKeys }}
+    >
       {children}
     </DraftCtx.Provider>
   );

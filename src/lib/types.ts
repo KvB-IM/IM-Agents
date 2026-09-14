@@ -3,6 +3,27 @@
 
 export type Relation = "primary" | "spouse" | "child" | "other";
 
+/**
+ * Which way a finished capture goes once the plan and household are settled.
+ *
+ * `"office"`       — filed to the CRM for an enroller to work. The original path.
+ * `"healthsherpa"` — filed to the CRM *as well*, then the agent is handed to
+ *                    HealthSherpa with the household pre-filled and enrolls the
+ *                    client there.
+ *
+ * Both write the SAME complete Jot. Only `Form_Type` and what happens after the
+ * write differ. The HealthSherpa record is deliberately not a thinner stub: a
+ * customer-service rep reading it is the whole reason it exists, and the SEP
+ * and existing-coverage context they would otherwise phone the agent for costs
+ * nothing extra to carry.
+ */
+export type EnrollmentPath = "office" | "healthsherpa";
+
+/** Narrow an untrusted value from a request body. */
+export function isEnrollmentPath(v: unknown): v is EnrollmentPath {
+  return v === "office" || v === "healthsherpa";
+}
+
 export interface Person {
   /** Stable within a draft, so React keys and dependent rows stay put. */
   key: string;
@@ -103,6 +124,28 @@ export interface CaptureDraft {
   americanIndianAkNative: string;
   medicaidChipDenied90d: string;
   employerCoverageOffer: string;
+  /**
+   * Getting unemployment compensation. Zoho has `Unemployment` (Yes/No), and
+   * HealthSherpa's enrollment session accepts `unemployment` — it affects the
+   * Medicaid/CHIP screening path, so it is worth the one question.
+   */
+  unemployment: string;
+  /**
+   * Primary caretaker of a child under 19. Accepted by the session as
+   * `parent_caretaker`, and it also changes the eligibility path.
+   *
+   * ⚠️ No Zoho field exists for it, so it rides in Agent_Notes via
+   * lib/unhoused.ts. Distinct from `caresForUnder19`, which asks about a child
+   * NOT on the application — HealthSherpa's own screens ask both.
+   */
+  parentCaretaker: string;
+  /**
+   * Preferred language, and the only capture that changes HealthSherpa's own
+   * UI: `context.locale = "es-MX"` puts the client into the Spanish flow.
+   * Stored as the English label for Zoho's `Preferred_Language` text field and
+   * translated to a locale at the HealthSherpa boundary.
+   */
+  preferredLanguage: string;
   ichraStatus: string;
   form8962Filed: string;
   willFileTaxes: string;

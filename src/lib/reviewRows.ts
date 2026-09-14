@@ -13,7 +13,7 @@
  */
 
 import { money, monthYear } from "./format.ts";
-import { ssnSummary } from "./ssn.ts";
+import { ssnSummary, ssnDigits } from "./ssn.ts";
 import { ageAt } from "./age.ts";
 import { effectiveHouseholdSize } from "./household.ts";
 import type { CaptureDraft, Person } from "./types.ts";
@@ -60,7 +60,15 @@ function personName(p: Person): string {
   return [p.firstName, p.lastName].filter(Boolean).join(" ");
 }
 
-export function buildSections(draft: CaptureDraft): Section[] {
+export function buildSections(
+  draft: CaptureDraft,
+  opts: { heldSsnKeys?: string[] } = {},
+): Section[] {
+  /* A resumed draft: the SSN is on the server, not in the browser, and the
+     review must say so rather than flag it as unanswered. Typed digits take
+     precedence — the agent is replacing it. */
+  const ssnHeld = (p: Person) =>
+    (opts.heldSsnKeys ?? []).includes(p.key) && ssnDigits(p.ssn).length === 0;
   const sections: Section[] = [];
 
   // ── Everyone on the form ───────────────────────────────────────────────
@@ -80,7 +88,9 @@ export function buildSections(draft: CaptureDraft): Section[] {
       rows.push(
         person.noSsn
           ? { label: "SSN", value: "Never issued — attested" }
-          : req("SSN", ssnSummary(person.ssn)),
+          : ssnHeld(person)
+            ? { label: "SSN", value: "On file from the saved draft" }
+            : req("SSN", ssnSummary(person.ssn)),
       );
     }
 
@@ -123,20 +133,53 @@ export function buildSections(draft: CaptureDraft): Section[] {
         ],
   });
 
-  // ── Contact ────────────────────────────────────────────────────────────
+  /* ── Contact, household and income ──────────────────────────────────────
+   * These moved to step 0 with the handoff set, so Edit has to follow them.
+   * A section carries one step for all its rows, which is why they are grouped
+   * here rather than left in the sections they used to belong to. */
+  const parts = [draft.employmentIncome, draft.spouseEmploymentIncome, draft.otherIncome]
+    .map((n) => n ?? 0)
+    .reduce((a, b) => a + b, 0);
+  const total = draft.householdIncome ?? 0;
+  /* The parts cannot exceed the total. Only that direction is checked: a
+   * household may legitimately state a total without itemising every source,
+   * so a sum BELOW the total is not an error and warning about it would train
+   * agents to ignore the warning that matters. */
+  const overshoot = total > 0 && parts > total;
+
   sections.push({
-    title: "Contact",
-    step: 1,
+    title: "Contact, household and income",
+    step: 0,
     rows: [
       req("Email", draft.email),
       req("Mobile", draft.phone),
       opt("Home phone", draft.homePhone),
+      req("Household size", String(draft.householdSize ?? effectiveHouseholdSize(draft))),
+      req(
+        "Annual household income",
+        draft.householdIncome === null ? "" : money(draft.householdIncome),
+        overshoot
+          ? `The sources on Income detail add up to ${money(parts)}, more than this total.`
+          : undefined,
+      ),
+      opt("Employment income", draft.employmentIncome === null ? "" : money(draft.employmentIncome)),
+      opt("Employer", draft.employer),
+      opt(
+        "Spouse employment",
+        draft.spouseEmploymentIncome === null ? "" : money(draft.spouseEmploymentIncome),
+      ),
+      opt("Other income", draft.otherIncome === null ? "" : money(draft.otherIncome)),
+      req("Offered coverage through a job", draft.employerCoverageOffer),
+      req("Denied Medicaid or CHIP in the last 90 days", draft.medicaidChipDenied90d),
+      req("Getting unemployment compensation", draft.unemployment),
+      req("Primary caretaker of a child under 19", draft.parentCaretaker),
+      req("Has coverage now", draft.existingCoverage),
+      req("Preferred language", draft.preferredLanguage),
     ],
   });
 
   // ── Tax household ──────────────────────────────────────────────────────
   const taxRows: Row[] = [
-    req("Household size", String(draft.householdSize ?? effectiveHouseholdSize(draft))),
     req("Will file taxes for the coverage year", draft.willFileTaxes),
     req("Filing jointly", draft.fileJointly),
     req("US citizen", draft.usCitizen),
@@ -169,44 +212,13 @@ export function buildSections(draft: CaptureDraft): Section[] {
       req("On Medicare Part A or C within 3 months", draft.medicareEnrolledOrSoon),
       req("Claimed as a tax dependent by someone else", draft.claimedAsDependent),
       req("Cares for a child under 19 not on this form", draft.caresForUnder19),
-      req("Denied Medicaid or CHIP in the last 90 days", draft.medicaidChipDenied90d),
-    ],
-  });
-
-  // ── Income ─────────────────────────────────────────────────────────────
-  /* The parts cannot exceed the total. Only that direction is checked: a
-   * household may legitimately state a total without itemising every source,
-   * so a sum BELOW the total is not an error and warning about it would train
-   * agents to ignore the warning that matters. */
-  const parts = [draft.employmentIncome, draft.spouseEmploymentIncome, draft.otherIncome]
-    .map((n) => n ?? 0)
-    .reduce((a, b) => a + b, 0);
-  const total = draft.householdIncome ?? 0;
-  const overshoot = total > 0 && parts > total;
-
-  sections.push({
-    title: "Income",
-    step: 3,
-    rows: [
-      req(
-        "Annual household income",
-        draft.householdIncome === null ? "" : money(draft.householdIncome),
-        overshoot
-          ? `The sources below add up to ${money(parts)}, more than the household total.`
-          : undefined,
-      ),
-      opt("Employment income", draft.employmentIncome === null ? "" : money(draft.employmentIncome)),
-      opt(
-        "Spouse employment",
-        draft.spouseEmploymentIncome === null ? "" : money(draft.spouseEmploymentIncome),
-      ),
-      opt("Other income", draft.otherIncome === null ? "" : money(draft.otherIncome)),
-      opt("Employer", draft.employer),
     ],
   });
 
   // ── Coverage and enrollment ────────────────────────────────────────────
-  const covRows: Row[] = [req("Has coverage now", draft.existingCoverage)];
+  /* "Has coverage now" moved to Essentials — the session accepts it. The TYPE
+   * and the loss date stay here: neither has an equivalent on that endpoint. */
+  const covRows: Row[] = [];
   if (draft.existingCoverage === "Yes") {
     covRows.push(req("Type of coverage", draft.typeOfExistingCoverage));
     covRows.push(opt("Coverage loss date", draft.coverageLossDate));
@@ -217,18 +229,17 @@ export function buildSections(draft: CaptureDraft): Section[] {
     covRows.push(req("Event date", draft.qualifyingEventDate));
   }
   covRows.push(
-    req("Offered coverage through a job", draft.employerCoverageOffer),
     req("ICHRA", draft.ichraStatus),
     req("Filed Form 8962", draft.form8962Filed),
   );
-  sections.push({ title: "Coverage and enrollment", step: 4, rows: covRows });
+  sections.push({ title: "Coverage and enrollment", step: 3, rows: covRows });
 
   // ── Plan ───────────────────────────────────────────────────────────────
   const plan = draft.selectedPlan;
   if (plan) {
     sections.push({
       title: "Plan",
-      step: 5,
+      step: 4,
       rows: [
         { label: "Plan", value: plan.planName },
         { label: "Carrier", value: plan.carrier },
@@ -246,7 +257,7 @@ export function buildSections(draft: CaptureDraft): Section[] {
   // ── Photo ID ───────────────────────────────────────────────────────────
   sections.push({
     title: "Photo ID",
-    step: 5,
+    step: 4,
     rows: [
       draft.photoId
         ? { label: "License photo", value: draft.photoId.filename }

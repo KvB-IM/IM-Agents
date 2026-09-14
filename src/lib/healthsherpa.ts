@@ -32,8 +32,10 @@ export class HealthSherpaUpstreamError extends Error {
 function userMessageForStatus(status: number, detail?: string): string {
   if (status === 401 || status === 403) {
     if (detail?.includes("not authorized to access this endpoint")) {
-      // The live state of the account today: quoting is enabled, enrollment is
-      // not. Phase 2 in SOFTWARE_SCOPE.md.
+      // Was the state of the account until 2026-09-08, when
+      // /v1/enrollment-sessions began answering 200 (lib/enrollmentSessionPayload.ts
+      // records the accepted payload). Kept: other enrollment endpoints may
+      // still be gated, and this is still the right sentence for that body.
       return "This HealthSherpa capability is not enabled for our account yet. Quoting works; enrollment API access must be requested through HealthSherpa onboarding.";
     }
     return "The HealthSherpa API key was rejected. Check that HEALTHSHERPA_API_KEY is set to a valid key.";

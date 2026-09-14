@@ -12,6 +12,7 @@ import {
   X,
   Pencil,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
@@ -26,7 +27,7 @@ import { readCaptureUi, serializeCaptureUi, closedAt } from "@/lib/captureUi.ts"
 import type { CaptureUi } from "@/lib/captureUi.ts";
 import * as PL from "@/lib/picklists";
 import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollmentEvents";
-import type { Jot } from "@/lib/types";
+import type { EnrollmentPath, Jot } from "@/lib/types";
 
 /**
  * The application, in HealthSherpa's own screen order.
@@ -40,7 +41,19 @@ import type { Jot } from "@/lib/types";
  * front to back, and 40 fields on one scroll is where things get skipped.
  */
 
-const STEPS = ["Applicant", "Address", "Household", "Income", "Coverage", "Review"] as const;
+const STEPS = ["Essentials", "Address", "Household", "Coverage", "Review"] as const;
+
+/**
+ * Whether to offer the HealthSherpa handoff as a second way to file.
+ *
+ * Off unless explicitly enabled, because HealthSherpa gates
+ * `/v1/enrollment-sessions` behind a separate partnership approval and answers
+ * 401/403 until it is granted. A button that always fails is worse than no
+ * button when an agent is sitting with a client, so until access lands the
+ * review screen offers only the office path. The server re-checks this
+ * independently — hiding a button is not a boundary.
+ */
+const HS_HANDOFF_ENABLED = process.env.NEXT_PUBLIC_HS_ENROLLMENT_ENABLED === "true";
 
 /** Where the agent is in the form. Beside the draft, and cleared with it. */
 const UI_KEY = "im-agent-capture-ui-v1";
@@ -57,7 +70,7 @@ export default function CapturePage() {
 function Capture() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { draft, patch, patchPerson, loaded, reset } = useDraft();
+  const { draft, patch, patchPerson, loaded, reset, heldSsnKeys } = useDraft();
   /**
    * Whether the form is open, and which step — persisted, not component state.
    *
@@ -123,6 +136,20 @@ function Capture() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<Jot | null>(null);
+  /* Which button filed it. The success screen says something quite different
+     for each: one is "the office has it", the other is "now go and enroll". */
+  const [submittedPath, setSubmittedPath] = useState<EnrollmentPath>("office");
+  /* The HealthSherpa deep links, when the handoff succeeded. Held in state and
+     NOT auto-followed: an immediate redirect would take the agent off the
+     success screen before they had seen the form ID, which is the string the
+     office and the reps use to find this record in both systems. */
+  const [handoff, setHandoff] = useState<{
+    clientApplyUrl: string;
+    shoppingUrl: string | null;
+  } | null>(null);
+  /* The handoff failed but the form is filed. Distinct from `error`, which
+     means nothing was saved. */
+  const [handoffError, setHandoffError] = useState<string | null>(null);
   /* Separate from `error`: the form succeeded and the photo did not, which is a
    * different message and must not read as a failed submission. */
   const [photoWarning, setPhotoWarning] = useState<string | null>(null);
@@ -142,6 +169,16 @@ function Capture() {
    * five steps to a masked field with no idea which digit was wrong.
    */
   const applicantBlocker = (() => {
+    /* The server requires a last name and a date of birth (Zoho makes
+       Last_Name mandatory), and the HealthSherpa button now lives on this same
+       step — so a draft that would 400 must not be submittable from here.
+       Checked in the same place as the SSN for the same reason: finding out at
+       submit means navigating back through the form to a masked field. */
+    const first = draft.people.find((x) => x.relation === "primary") ?? draft.people[0];
+    if (!first?.firstName?.trim()) return "The applicant needs a first name.";
+    if (!first?.lastName?.trim()) return "The applicant needs a last name.";
+    if (!first?.dateOfBirth) return "The applicant needs a date of birth.";
+
     const covered = draft.people.filter((p) => p.seekingCoverage);
     for (const person of covered) {
       const who =
@@ -149,32 +186,74 @@ function Capture() {
         (person.relation === "primary" ? "the applicant" : "a household member");
       // Attested as never issued: no number to require or confirm.
       if (person.noSsn) continue;
+      /* Held on the server from a resumed draft, and nothing typed to replace
+         it: satisfied. The submit route merges it in. Anything typed is
+         checked normally — the agent is replacing the held number. */
+      if (heldSsnKeys.includes(person.key) && ssnDigits(person.ssn).length === 0) continue;
       if (ssnDigits(person.ssn).length === 0) return `${who} needs an SSN.`;
       if (!ssnConfirmed(person.ssn, person.ssnConfirm)) {
         return `${who}'s SSN entries do not match.`;
       }
     }
+
+    /* The office's minimum to identify and reach a client from the Jot alone is
+       first and last name, a phone number, and the SSN above. In the
+       self-service flow none of these reach HealthSherpa — they exist for the
+       office — so a handoff without them leaves a stub nobody can act on.
+       Email is asked for but NOT required: a client with no email address is
+       common and lawful, and HealthSherpa collects one on the application
+       anyway. Checked last so the messages follow the screen top to bottom. */
+    if (!draft.phone.trim()) return "The office needs a phone number for the client.";
     return null;
   })();
 
   const blocker = step === 0 ? applicantBlocker : null;
   const onReview = step === STEPS.length - 1;
 
-  async function submit() {
+  /**
+   * File the application.
+   *
+   * Both paths write the SAME complete Jot and go through this one function —
+   * the server picks `Form_Type` from `path` and, for the HealthSherpa path,
+   * creates the pre-filled session AFTER the record exists. The ordering is the
+   * server's to guarantee, not this screen's: a browser that could obtain a
+   * deep link without first filing a record is a client nobody in the office
+   * knows about.
+   */
+  async function submit(path: EnrollmentPath) {
     setError(null);
+    setHandoffError(null);
     setSubmitting(true);
     try {
       const res = await fetch("/api/enrollments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draft, submissionKey }),
+        body: JSON.stringify({ draft, submissionKey, path }),
       });
-      const data = (await res.json()) as { jot?: Jot; error?: string };
+      const data = (await res.json()) as {
+        jot?: Jot;
+        error?: string;
+        links?: { clientApplyUrl: string; shoppingUrl: string | null };
+        handoffError?: string;
+        mock?: boolean;
+      };
       if (!res.ok || !data.jot) {
         setError(data.error ?? "The application could not be submitted.");
         return;
       }
       setSubmitted(data.jot);
+      setSubmittedPath(path);
+      if (data.links) setHandoff(data.links);
+      if (data.handoffError) setHandoffError(data.handoffError);
+      /* HS_ENROLLMENT_MOCK: the form really was filed and the session payload
+         really was built, but nothing was sent. Say so, rather than showing a
+         success screen with no handoff on it and letting it read as a silent
+         failure. Local development only — the flag is ignored in production. */
+      if (data.mock) {
+        setHandoffError(
+          "Mock mode: the form is filed and the HealthSherpa payload was built, but no session was created. Unset HS_ENROLLMENT_MOCK to hand off for real.",
+        );
+      }
       /* The position belonged to a form that no longer needs filling in. */
       try {
         sessionStorage.removeItem(UI_KEY);
@@ -226,10 +305,42 @@ function Capture() {
             Filed as {submitted.formId}
           </h1>
           <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted">
-            {submitted.clientName} is with the office now. You will see requirements and problems
-            here as they work it.
+            {submittedPath === "healthsherpa"
+              ? `${submitted.clientName}'s form is filed. Hand them this device to finish on HealthSherpa — quote this form ID if the office asks.`
+              : `${submitted.clientName} is with the office now. You will see requirements and problems here as they work it.`}
           </p>
         </div>
+
+        {/* The handoff. Presented as a deliberate step rather than an automatic
+            redirect, so the agent leaves with the form ID already seen — it is
+            the identifier the office and the reps use to find this same
+            application in HealthSherpa. */}
+        {handoff ? (
+          <Inset className="space-y-2">
+            <a href={handoff.clientApplyUrl} className="block">
+              <Button>
+                <ExternalLink size={16} aria-hidden />
+                Open HealthSherpa for the client
+              </Button>
+            </a>
+            {handoff.shoppingUrl ? (
+              <a href={handoff.shoppingUrl} className="block">
+                <Button variant="secondary">Change the plan first</Button>
+              </a>
+            ) : null}
+            <p className="px-1 text-[12px] leading-snug text-muted">
+              Opens HealthSherpa with the quoted plan selected. The client signs in to nothing —
+              they start at the privacy statement and sign the consents themselves.
+            </p>
+          </Inset>
+        ) : null}
+
+        {handoffError ? (
+          <p className="mx-4 flex items-start gap-2 rounded-xl bg-warning/5 px-3 py-2.5 text-[13px] leading-snug text-navy-900 ring-1 ring-warning/25">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+            {handoffError}
+          </p>
+        ) : null}
 
         {photoWarning ? (
           <p className="mx-4 flex items-start gap-2 rounded-xl bg-warning/5 px-3 py-2.5 text-[13px] leading-snug text-navy-900 ring-1 ring-warning/25">
@@ -294,8 +405,8 @@ function Capture() {
             {capturedName || "No name captured yet"}
           </h1>
           <p className="mt-1 text-[13px] leading-snug text-muted">
-            Saved on this device. It needs a plan before the rest of the application can be
-            filled in.
+            Saved here and backed up to the office server for 15 days. It needs a plan before
+            the rest of the application can be filled in.
           </p>
         </Inset>
 
@@ -504,29 +615,256 @@ function Capture() {
 
       {/* ── Step 0: Applicant ──────────────────────────────────────────── */}
       {step === 0 ? (
-        <Card>
-          <CardHeader
-            title="Applicant and household members"
-            hint="Each SSN is entered twice. Digits hide as you type."
-          />
-          <div>
-            {draft.people.map((person) => (
-              <PersonEditor
-                key={person.key}
-                person={person}
-                effectiveDate={draft.requestedEffective}
-                onChange={(p) => patchPerson(person.key, p)}
-                showSsn
+        <div className="space-y-4">
+          <Card>
+            <CardHeader
+              title="Applicant and household members"
+              hint="Each SSN is entered twice. Digits hide as you type."
+            />
+            <div>
+              {draft.people.map((person) => (
+                <PersonEditor
+                  key={person.key}
+                  person={person}
+                  effectiveDate={draft.requestedEffective}
+                  onChange={(p) => patchPerson(person.key, p)}
+                  showSsn
+                  ssnHeld={heldSsnKeys.includes(person.key)}
+                />
+              ))}
+            </div>
+          </Card>
+
+          {/* ── The handoff set ──────────────────────────────────────────────
+              Everything at the FRONT of the form is here for one of two
+              reasons, and it is worth knowing which is which:
+
+              1. HealthSherpa pre-fills it. DoB, sex, tobacco, pregnancy,
+                 household size, every income figure, the eligibility answers
+                 and the language are what `/v1/enrollment-sessions` accepts
+                 (verified live, both flows). Nothing after this step has an
+                 equivalent there.
+              2. The office needs it on the Jot to identify and reach the
+                 client: first and last name, phone, email, SSN. In the
+                 self-service flow NONE of these go to HealthSherpa — the
+                 client types their own — so they exist purely for the record
+                 a customer-service rep works from. SSN in particular is how a
+                 rep positively identifies the client over there.
+
+              Remove a field from (2) and the stub stops being useful; remove
+              one from (1) and the client types it again. */}
+          <Card>
+            <CardHeader
+              title="Contact, household and income"
+              hint="What HealthSherpa pre-fills, plus what the office needs to find and reach the client."
+            />
+            <div className="space-y-3 px-4 pb-4">
+              <SubHead>Contact</SubHead>
+              <Field label="Email">
+                <TextInput
+                  type="email"
+                  value={draft.email}
+                  onChange={(e) => patch({ email: e.target.value })}
+                  inputMode="email"
+                  autoCapitalize="off"
+                  autoComplete="off"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Mobile">
+                  <TextInput
+                    type="tel"
+                    value={draft.phone}
+                    onChange={(e) => patch({ phone: e.target.value })}
+                    inputMode="tel"
+                  />
+                </Field>
+                {/* Not part of the handoff set — the session takes one phone
+                    number — but splitting the contact block across two steps
+                    to save one field costs more than it saves. */}
+                <Field label="Home phone">
+                  <TextInput
+                    type="tel"
+                    value={draft.homePhone}
+                    onChange={(e) => patch({ homePhone: e.target.value })}
+                    inputMode="tel"
+                  />
+                </Field>
+              </div>
+
+              <SubHead>Household and income</SubHead>
+              {/* Pre-filled from the people on the form rather than left blank —
+                  the agent was typing the same number twice. Still editable: a
+                  TAX household can include someone not applying, or exclude a
+                  member who files separately. */}
+              <Field
+                label="Household size"
+                hint="Everyone on the tax return, not just those applying."
+              >
+                <TextInput
+                  value={draft.householdSize ?? effectiveHouseholdSize(draft)}
+                  onChange={(e) =>
+                    patch({ householdSize: e.target.value === "" ? null : Number(e.target.value) })
+                  }
+                  inputMode="numeric"
+                />
+              </Field>
+              <Field
+                label="Annual household income"
+                hint="A wrong digit here is the difference between an enrollment that processes and one that bounces."
+              >
+                <TextInput
+                  value={draft.householdIncome ?? ""}
+                  onChange={(e) =>
+                    patch({ householdIncome: e.target.value === "" ? null : Number(e.target.value) })
+                  }
+                  inputMode="numeric"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Employment income">
+                  <TextInput
+                    value={draft.employmentIncome ?? ""}
+                    onChange={(e) =>
+                      patch({
+                        employmentIncome: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    inputMode="numeric"
+                  />
+                </Field>
+                <Field label="Employer">
+                  <TextInput
+                    value={draft.employer}
+                    onChange={(e) => patch({ employer: e.target.value })}
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Spouse employment">
+                  <TextInput
+                    value={draft.spouseEmploymentIncome ?? ""}
+                    onChange={(e) =>
+                      patch({
+                        spouseEmploymentIncome:
+                          e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    inputMode="numeric"
+                  />
+                </Field>
+                <Field label="Other income">
+                  <TextInput
+                    value={draft.otherIncome ?? ""}
+                    onChange={(e) =>
+                      patch({ otherIncome: e.target.value === "" ? null : Number(e.target.value) })
+                    }
+                    inputMode="numeric"
+                  />
+                </Field>
+              </div>
+
+              {/* ── The eligibility answers the session accepts ─────────────
+                  These four are here rather than on a later step for the same
+                  reason as everything else on Essentials: HealthSherpa takes
+                  them, so capturing them means the agent does not answer them
+                  again over there. They are not cosmetic — each one changes the
+                  Medicaid/CHIP screening path the exchange puts the client
+                  down. */}
+              <SubHead>Eligibility</SubHead>
+              <PickField
+                label="Offered coverage through a job"
+                choices={PL.EMPLOYER_COVERAGE_OFFER}
+                value={draft.employerCoverageOffer}
+                onChange={(employerCoverageOffer) => patch({ employerCoverageOffer })}
               />
-            ))}
-          </div>
-        </Card>
+              <PickField
+                label="Denied Medicaid or CHIP in the last 90 days"
+                choices={PL.MEDICAID_CHIP_DENIED_90D}
+                value={draft.medicaidChipDenied90d}
+                onChange={(medicaidChipDenied90d) => patch({ medicaidChipDenied90d })}
+              />
+              <PickField
+                label="Getting unemployment compensation"
+                choices={PL.UNEMPLOYMENT}
+                value={draft.unemployment}
+                onChange={(unemployment) => patch({ unemployment })}
+              />
+              <PickField
+                label="Primary caretaker of a child under 19"
+                choices={PL.PARENT_CARETAKER}
+                value={draft.parentCaretaker}
+                onChange={(parentCaretaker) => patch({ parentCaretaker })}
+                hint="Any child under 19 they care for, on this application or not."
+              />
+              <Field label="Has coverage now">
+                <Toggle
+                  value={draft.existingCoverage === "" ? null : draft.existingCoverage === "Yes"}
+                  onChange={(v) => patch({ existingCoverage: v ? "Yes" : "No" })}
+                />
+              </Field>
+
+              {/* The only capture that changes HealthSherpa's own UI: Spanish
+                  sends `context.locale = "es-MX"`, which puts the client into
+                  the Spanish flow rather than an English one they then have to
+                  work through. */}
+              <PickField
+                label="Preferred language"
+                choices={PL.PREFERRED_LANGUAGE}
+                value={draft.preferredLanguage}
+                onChange={(preferredLanguage) => patch({ preferredLanguage })}
+              />
+            </div>
+          </Card>
+
+          {/* ── The fork ─────────────────────────────────────────────────────
+              The choice is offered HERE rather than at the end because this is
+              the point where taking it saves the work. Offered at Review it
+              saved nothing: the agent had already captured all six steps and
+              then re-entered much of it on HealthSherpa.
+
+              "Continue on this form" is the sticky Next below, so the two
+              options are a pair. Review still offers the handoff too, for an
+              agent who completes the whole form and wants HealthSherpa
+              anyway — that combination gives the office the most complete
+              record. */}
+          {HS_HANDOFF_ENABLED ? (
+            <Inset className="space-y-2">
+              {error ? (
+                <p className="flex items-start gap-2 rounded-xl bg-error/5 px-3 py-2.5 text-[13px] text-error ring-1 ring-error/15">
+                  <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden />
+                  {error}
+                </p>
+              ) : null}
+              <Button
+                variant="secondary"
+                onClick={() => submit("healthsherpa")}
+                disabled={submitting || blocker !== null}
+              >
+                <ExternalLink size={16} aria-hidden />
+                {submitting ? "Submitting…" : "Submit and hand off to HealthSherpa"}
+              </Button>
+              <p className="px-1 text-[12px] leading-snug text-muted">
+                Files what you have captured so far, then opens HealthSherpa for the client to
+                finish on this device — no login, quoted plan already selected. Skips the rest
+                of this form; the office picks up the remainder from HealthSherpa.
+              </p>
+              {/* A nudge, not a gate — see the blocker for why email is optional. */}
+              {!draft.email.trim() ? (
+                <p className="flex items-start gap-2 px-1 text-[12px] leading-snug text-warning">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden />
+                  No email captured. The office will take it from HealthSherpa.
+                </p>
+              ) : null}
+            </Inset>
+          ) : null}
+        </div>
       ) : null}
 
       {/* ── Step 1: Address and contact ────────────────────────────────── */}
       {step === 1 ? (
         <Card>
-          <CardHeader title="Home address and contact" hint="Where they actually live, as the exchange has it." />
+          <CardHeader title="Home address" hint="Where they actually live, as the exchange has it." />
           <div className="space-y-3 px-4 pb-4">
             <SubHead>Home address</SubHead>
             <Field label="Street">
@@ -561,36 +899,6 @@ function Capture() {
                 hint="If not, the office will need the other address."
               />
             ) : null}
-
-            <SubHead>Contact</SubHead>
-            <Field label="Email">
-              <TextInput
-                type="email"
-                value={draft.email}
-                onChange={(e) => patch({ email: e.target.value })}
-                inputMode="email"
-                autoCapitalize="off"
-                autoComplete="off"
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Mobile">
-                <TextInput
-                  type="tel"
-                  value={draft.phone}
-                  onChange={(e) => patch({ phone: e.target.value })}
-                  inputMode="tel"
-                />
-              </Field>
-              <Field label="Home phone">
-                <TextInput
-                  type="tel"
-                  value={draft.homePhone}
-                  onChange={(e) => patch({ homePhone: e.target.value })}
-                  inputMode="tel"
-                />
-              </Field>
-            </div>
 
             <SubHead>Mailing address</SubHead>
             <Field label="Mailing address is the same as the home address">
@@ -647,22 +955,6 @@ function Capture() {
         <Card>
           <CardHeader title="Tax household" hint="Filing intent drives eligibility for the credit." />
           <div className="space-y-4 px-4 pb-4">
-            {/* Pre-filled from the people on the form rather than left blank —
-                the agent was typing the same number twice. Still editable: a
-                TAX household can include someone not applying, or exclude a
-                member who files separately. */}
-            <Field
-              label="Household size"
-              hint="Everyone on the tax return, not just those applying."
-            >
-              <TextInput
-                value={draft.householdSize ?? effectiveHouseholdSize(draft)}
-                onChange={(e) =>
-                  patch({ householdSize: e.target.value === "" ? null : Number(e.target.value) })
-                }
-                inputMode="numeric"
-              />
-            </Field>
             <Field label="Will file taxes for the coverage year">
               <Toggle
                 value={draft.willFileTaxes === "" ? null : draft.willFileTaxes === "Yes"}
@@ -770,90 +1062,19 @@ function Capture() {
               value={draft.caresForUnder19}
               onChange={(caresForUnder19) => patch({ caresForUnder19 })}
             />
-            <PickField
-              label="Denied Medicaid or CHIP in the last 90 days"
-              choices={PL.MEDICAID_CHIP_DENIED_90D}
-              value={draft.medicaidChipDenied90d}
-              onChange={(medicaidChipDenied90d) => patch({ medicaidChipDenied90d })}
-            />
           </div>
         </Card>
       ) : null}
 
       {/* ── Step 3: Income ─────────────────────────────────────────────── */}
+      {/* ── Step 3: Existing coverage and SEP ──────────────────────────── */}
       {step === 3 ? (
-        <Card>
-          <CardHeader
-            title="Income"
-            hint="A wrong digit here is the difference between an enrollment that processes and one that bounces."
-          />
-          <div className="space-y-3 px-4 pb-4">
-            <Field label="Annual household income">
-              <TextInput
-                value={draft.householdIncome ?? ""}
-                onChange={(e) =>
-                  patch({ householdIncome: e.target.value === "" ? null : Number(e.target.value) })
-                }
-                inputMode="numeric"
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Employment income">
-                <TextInput
-                  value={draft.employmentIncome ?? ""}
-                  onChange={(e) =>
-                    patch({ employmentIncome: e.target.value === "" ? null : Number(e.target.value) })
-                  }
-                  inputMode="numeric"
-                />
-              </Field>
-              <Field label="Spouse employment">
-                <TextInput
-                  value={draft.spouseEmploymentIncome ?? ""}
-                  onChange={(e) =>
-                    patch({
-                      spouseEmploymentIncome: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
-                  inputMode="numeric"
-                />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Other income">
-                <TextInput
-                  value={draft.otherIncome ?? ""}
-                  onChange={(e) =>
-                    patch({ otherIncome: e.target.value === "" ? null : Number(e.target.value) })
-                  }
-                  inputMode="numeric"
-                />
-              </Field>
-              <Field label="Employer">
-                <TextInput
-                  value={draft.employer}
-                  onChange={(e) => patch({ employer: e.target.value })}
-                />
-              </Field>
-            </div>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* ── Step 4: Existing coverage and SEP ──────────────────────────── */}
-      {step === 4 ? (
         <Card>
           <CardHeader
             title="Existing coverage and enrollment event"
             hint="Outside open enrollment, the qualifying event is what makes the application valid."
           />
           <div className="space-y-3 px-4 pb-4">
-            <Field label="Has coverage now">
-              <Toggle
-                value={draft.existingCoverage === "" ? null : draft.existingCoverage === "Yes"}
-                onChange={(v) => patch({ existingCoverage: v ? "Yes" : "No" })}
-              />
-            </Field>
             {draft.existingCoverage === "Yes" ? (
               <>
                 {/* Options come from PL, not typed here: the previous list
@@ -928,12 +1149,6 @@ function Capture() {
             ) : null}
 
             <PickField
-              label="Offered coverage through a job"
-              choices={PL.EMPLOYER_COVERAGE_OFFER}
-              value={draft.employerCoverageOffer}
-              onChange={(employerCoverageOffer) => patch({ employerCoverageOffer })}
-            />
-            <PickField
               label="ICHRA"
               choices={PL.ICHRA_STATUS}
               value={draft.ichraStatus}
@@ -951,14 +1166,14 @@ function Capture() {
       ) : null}
 
       {/* ── Step 5: Review and submit ──────────────────────────────────── */}
-      {step === 5 ? (
+      {step === 4 ? (
         <div className="space-y-4">
           <LicenseCapture
             document={draft.photoId}
             onChange={(photoId) => patch({ photoId })}
           />
 
-          <ReviewSummary draft={draft} onEdit={setStep} />
+          <ReviewSummary draft={draft} onEdit={setStep} heldSsnKeys={heldSsnKeys} />
 
           {error ? (
             <p className="mx-4 flex items-start gap-2 rounded-xl bg-error/5 px-3 py-2.5 text-[13px] text-error ring-1 ring-error/15">
@@ -967,11 +1182,31 @@ function Capture() {
             </p>
           ) : null}
 
-          <Inset>
-            <Button onClick={submit} disabled={submitting}>
+          {/* Two ways to file the same complete application. The office path is
+              primary because it is the established one and the one that always
+              works; the handoff is offered beside it, not instead of it. */}
+          <Inset className="space-y-2">
+            <Button onClick={() => submit("office")} disabled={submitting}>
               <Send size={16} aria-hidden />
               {submitting ? "Submitting…" : "Submit to the office"}
             </Button>
+            {HS_HANDOFF_ENABLED ? (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => submit("healthsherpa")}
+                  disabled={submitting}
+                >
+                  <ExternalLink size={16} aria-hidden />
+                  {submitting ? "Submitting…" : "Submit and hand off to HealthSherpa"}
+                </Button>
+                <p className="px-1 text-[12px] leading-snug text-muted">
+                  Files the same form, then opens HealthSherpa for the client to finish on
+                  this device, quoted plan already selected. The office still sees the form
+                  and will collect the rest from HealthSherpa.
+                </p>
+              </>
+            ) : null}
           </Inset>
         </div>
       ) : null}
@@ -1003,7 +1238,8 @@ function Capture() {
             disabled={blocker !== null}
             className="!w-auto flex-[2]"
           >
-            Next <ChevronRight size={17} aria-hidden />
+            {step === 0 && HS_HANDOFF_ENABLED ? "Continue on this form" : "Next"}{" "}
+            <ChevronRight size={17} aria-hidden />
           </Button>
         )}
       </div>

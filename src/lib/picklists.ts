@@ -78,6 +78,33 @@ export const EMPLOYER_COVERAGE_OFFER: Choice[] = [
   { value: "Unknown", label: "Not sure" },
 ];
 
+/** `Unemployment` on JOTS — verified Yes/No. */
+export const UNEMPLOYMENT = yesNo;
+
+/**
+ * Primary caretaker of a child under 19.
+ *
+ * No Zoho field, so this is not pinned to a picklist — it is carried in
+ * Agent_Notes. Declared here anyway so the UI is built from one place, and so
+ * swapping it to a real field later is a one-line change.
+ */
+export const PARENT_CARETAKER = YES_NO;
+
+/**
+ * Preferred language.
+ *
+ * Two options because HealthSherpa's session accepts exactly two locales,
+ * `en-US` and `es-MX`, and `es-MX` is what puts the client into the Spanish
+ * flow. Zoho's `Preferred_Language` is free TEXT, so there is no picklist to
+ * violate — these values are what we choose to store, and the English label is
+ * stored rather than a locale code so the office reads a language, not a
+ * standard.
+ */
+export const PREFERRED_LANGUAGE: Choice[] = [
+  { value: "English", label: "English" },
+  { value: "Spanish", label: "Spanish (Spanish HealthSherpa flow)" },
+];
+
 export const ICHRA_STATUS: Choice[] = [
   { value: "No ICHRA", label: "No ICHRA" },
   { value: "Offered - Not Accepted", label: "Offered, not accepted" },
@@ -132,6 +159,41 @@ export const ENROLLMENT_TYPE: Choice[] = [
 ];
 
 export const REENROLLING = yesNo;
+
+/* ── Which enrollment path filed this ───────────────────────────────────────
+ * `Form_Type` already drew this distinction before this app existed: a form the
+ * office still has to enroll, and one the agent enrolled in the field. That is
+ * exactly the fork the review screen now offers, so no new option was added and
+ * the office's existing reports keep working.
+ *
+ * ⚠️ Verified against live JOTS field metadata. Both values are VERBATIM,
+ * including "Feild" — that is Zoho's own spelling. Correcting it here would put
+ * the value off-list, and Zoho would silently drop it.
+ *
+ * This app had been sending `Form_Type: "Agent Portal"` and
+ * `Method: "Field Agent"`. NEITHER is an option on its picklist, so both were
+ * silently discarded and every agent-portal Jot filed before this change
+ * carried two blank fields — the fourth instance of the bug class at the top of
+ * this file, in the one pair of picklists this file did not yet declare.
+ *
+ * `Method` is no longer written at all. Its real options are PR-Only /
+ * PR-Usurp / CR&PR: representation and AOR mechanics, nothing to do with where
+ * a form came from. Agent-portal origin is already legible from the `AP-`
+ * prefix on `Name`.
+ *
+ * Seven other `Form_Type` options exist on the field (six `Short Form - …`
+ * variants plus `-None-`). They are deliberately NOT declared: this list is an
+ * outbound allowlist, and the capture screen only ever files a full form. */
+
+/** The office enrolls it. The historical agent-portal path. */
+export const FORM_TYPE_OFFICE = "Full Form - Needs Enrollment";
+/** The agent enrolled the client on HealthSherpa at the table. */
+export const FORM_TYPE_HEALTHSHERPA = "Full Form - Enrolled In Feild";
+
+export const FORM_TYPE: Choice[] = [
+  { value: FORM_TYPE_OFFICE, label: "Office enrolls it" },
+  { value: FORM_TYPE_HEALTHSHERPA, label: "Enrolled in the field" },
+];
 
 /* ── Dependents subform ─────────────────────────────────────────────────────
  * Verified against the Jot_Dependents subform's own field metadata. */

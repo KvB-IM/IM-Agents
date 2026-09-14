@@ -21,6 +21,7 @@ import type { CaptureDraft, Person } from "./types";
  *   Medicare_Enrolled_Or_Soon   Enrolled in Part A or C, or will be in 3 months
  *   Claimed_As_Dependent        Will be claimed as a tax dependent by someone else
  *   Cares_For_Under_19          Cares for a child under 19 not on this application
+ *   Parent_Caretaker           Primary caretaker of a child under 19
  *   Everyone_Same_Address       Does everyone applying live at this address
  *
  * A sixth, on the Jot_Dependents SUBFORM, would retire the pregnancy overflow:
@@ -66,6 +67,11 @@ export function unhousedAnswers(draft: CaptureDraft): string {
   );
   ask("Will be claimed as a tax dependent by someone else", draft.claimedAsDependent);
   ask("Cares for a child under 19 who is not on this application", draft.caresForUnder19);
+  /* Accepted by HealthSherpa's enrollment session as `parent_caretaker`, and it
+   * moves the eligibility path — but JOTS has no field for it, checked against
+   * live metadata. Distinct from the question above: this one counts a child on
+   * the application too. */
+  ask("Primary caretaker of a child under 19", draft.parentCaretaker);
   ask("Everyone applying lives at the home address", draft.everyoneSameAddress);
 
   /* Pregnancy for anyone other than the primary. The primary's answer has a

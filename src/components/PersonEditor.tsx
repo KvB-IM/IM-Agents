@@ -28,12 +28,15 @@ export default function PersonEditor({
   onChange,
   onRemove,
   showSsn,
+  ssnHeld = false,
 }: {
   person: Person;
   effectiveDate: string;
   onChange: (p: Partial<Person>) => void;
   onRemove?: () => void;
   showSsn?: boolean;
+  /** This person's SSN is held on the server from a resumed draft. */
+  ssnHeld?: boolean;
 }) {
   const age = ageAt(person.dateOfBirth, effectiveDate);
 
@@ -139,6 +142,7 @@ export default function PersonEditor({
             value={person.ssn}
             confirmValue={person.ssnConfirm}
             noSsn={person.noSsn}
+            held={ssnHeld}
             onChange={(ssn) => onChange({ ssn })}
             onConfirmChange={(ssnConfirm) => onChange({ ssnConfirm })}
             /* Checking the attestation clears any digits already typed: the

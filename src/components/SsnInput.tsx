@@ -33,6 +33,7 @@ export default function SsnInput({
   onConfirmChange,
   onNoSsnChange,
   required = true,
+  held = false,
 }: {
   label: string;
   value: string;
@@ -42,6 +43,11 @@ export default function SsnInput({
   onConfirmChange: (digits: string) => void;
   onNoSsnChange: (v: boolean) => void;
   required?: boolean;
+  /**
+   * The number is held on the server from a resumed draft and is NOT in the
+   * browser. The boxes stay empty and are not required; typing replaces it.
+   */
+  held?: boolean;
 }) {
   // Only complain once they have left the field. Showing "an SSN is required"
   // on an untouched form is noise, not help. The confirmation box needs no
@@ -63,6 +69,10 @@ export default function SsnInput({
    * says nothing.
    */
   const diverged = confirmDigits.length > 0 && !digits.startsWith(confirmDigits);
+
+  /* Held and untouched: nothing to require. The moment a digit is typed the
+     agent is replacing the held number, and the ordinary checks apply. */
+  const keepingHeld = held && digits.length === 0;
 
   /* Keystroke interpretation lives in lib/ssn.ts, where it is unit-tested —
    * it is a delta against the rendered mask rather than a plain read of the
@@ -87,9 +97,16 @@ export default function SsnInput({
 
   return (
     <div className="space-y-3">
+      {keepingHeld ? (
+        <p className="flex items-start gap-2 rounded-xl bg-navy-50 px-3 py-2.5 text-[12px] leading-snug text-navy-900 ring-1 ring-navy-100">
+          <Check size={14} className="mt-0.5 shrink-0 text-success" strokeWidth={3} aria-hidden />
+          On file from the saved draft. Leave these blank to keep it, or enter a new number to
+          replace it.
+        </p>
+      ) : null}
       <Field
         label={label}
-        error={touched && required && problem ? problem : undefined}
+        error={touched && required && !keepingHeld && problem ? problem : undefined}
       >
         <TextInput
           value={maskedSsn(digits)}

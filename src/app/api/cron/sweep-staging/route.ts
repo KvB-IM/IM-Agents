@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { sweepStaged, stagingConfigured, STAGING_TTL_DAYS } from "@/lib/staging";
+import { cronAuthFailure } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -13,29 +13,12 @@ export const dynamic = "force-dynamic";
  * sit in the bucket holding a photograph of somebody's driver's license
  * indefinitely.
  *
- * Authorised by CRON_SECRET rather than a session, because Vercel Cron has no
- * session. Compared in constant time, and the endpoint refuses outright when
- * the secret is unset — an unauthenticated delete-things endpoint is worse than
- * no sweep.
+ * Authorised by CRON_SECRET via lib/cronAuth.ts, shared with the retention
+ * route so the two checks cannot drift.
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return NextResponse.json(
-      { error: "CRON_SECRET is not set, so this endpoint is disabled." },
-      { status: 503 },
-    );
-  }
-
-  /* Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`. */
-  const offered = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${secret}`;
-  if (
-    offered.length !== expected.length ||
-    !timingSafeEqual(Buffer.from(offered), Buffer.from(expected))
-  ) {
-    return NextResponse.json({ error: "Not authorised." }, { status: 401 });
-  }
+  const denied = cronAuthFailure(request);
+  if (denied) return denied;
 
   if (!stagingConfigured()) {
     return NextResponse.json({ skipped: "no blob store configured" });

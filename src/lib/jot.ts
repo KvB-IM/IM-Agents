@@ -4,7 +4,7 @@ import { formatSsn } from "./ssn";
 import * as PL from "./picklists";
 import { effectiveHouseholdSize } from "./household";
 import { unhousedAnswers } from "./unhoused";
-import type { CaptureDraft, Person } from "./types";
+import type { CaptureDraft, EnrollmentPath, Person } from "./types";
 import { ageAt } from "./age";
 
 /**
@@ -129,6 +129,11 @@ export const CAPTURE_WRITABLE = {
   Pregnant: "picklist",
   Medicaid_CHIP_Denied_90d: "picklist",
   Employer_Coverage_Offer: "picklist",
+  // Both verified present on JOTS: Unemployment is a Yes/No picklist,
+  // Preferred_Language is free text. Both are also accepted by the enrollment
+  // session, which is why they are captured now.
+  Unemployment: "picklist",
+  Preferred_Language: "text",
   ICHRA_Status: "picklist",
   Form_8962_Filed: "picklist",
   // HS step 7 — income
@@ -152,10 +157,16 @@ export const CAPTURE_WRITABLE = {
   Carrier_HIOS_ID: "text",
   Plan_HIOS_ID: "text",
   Policy_Year: "text",
-  // Origin. Lets the back office tell an agent-portal submission from a
-  // JotForm one and report on the two separately.
+  /* Which enrollment path filed it — the office, or an agent who enrolled the
+   * client on HealthSherpa at the table. Values are pinned in lib/picklists.ts,
+   * verbatim from live field metadata.
+   *
+   * `Method` used to be here too, set to "Field Agent". That is not one of its
+   * options (PR-Only / PR-Usurp / CR&PR) so Zoho silently dropped it on every
+   * submission, and it was the wrong field regardless — `Method` is about
+   * representation and AOR, not origin. Agent-portal origin is already legible
+   * from the `AP-` prefix on `Name`. */
   Form_Type: "picklist",
-  Method: "picklist",
 } as const;
 
 /**
@@ -224,6 +235,7 @@ export function draftToJot(
   draft: CaptureDraft,
   agent: AgentIdentity,
   submissionKey: string,
+  path: EnrollmentPath,
 ): Record<string, unknown> {
   const primary = primaryOf(draft);
   const plan = draft.selectedPlan;
@@ -297,6 +309,11 @@ export function draftToJot(
       PL.EMPLOYER_COVERAGE_OFFER,
       draft.employerCoverageOffer,
     ),
+    Unemployment: PL.pinned(PL.UNEMPLOYMENT, draft.unemployment),
+    /* Free text on Zoho, so nothing to pin — written as the English language
+     * name rather than the locale code the HealthSherpa boundary uses, because
+     * the office reads this field. */
+    Preferred_Language: draft.preferredLanguage,
     ICHRA_Status: PL.pinned(PL.ICHRA_STATUS, draft.ichraStatus),
     Form_8962_Filed: PL.pinned(PL.FORM_8962_FILED, draft.form8962Filed),
 
@@ -329,8 +346,14 @@ export function draftToJot(
     Plan_HIOS_ID: plan?.planHiosId ?? "",
     Policy_Year: effective ? effective.slice(0, 4) : "",
 
-    Form_Type: "Agent Portal",
-    Method: "Field Agent",
+    /* The one field that differs between the two paths. Everything else on
+     * this record is identical: a HealthSherpa submission is a COMPLETE Jot,
+     * not a stub, because a customer-service rep reading it is the reason it
+     * exists. See the EnrollmentPath doc in lib/types.ts. */
+    Form_Type: PL.pinned(
+      PL.FORM_TYPE,
+      path === "healthsherpa" ? PL.FORM_TYPE_HEALTHSHERPA : PL.FORM_TYPE_OFFICE,
+    ),
 
     /* Answers with no dedicated field yet. Empty string when there are none,
      * which the allowlist gate then drops — so a Jot with nothing to report

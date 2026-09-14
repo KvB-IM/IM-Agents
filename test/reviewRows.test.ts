@@ -61,6 +61,9 @@ function fullDraft(over: Partial<CaptureDraft> = {}): CaptureDraft {
     americanIndianAkNative: "No",
     medicaidChipDenied90d: "No",
     employerCoverageOffer: "No",
+    unemployment: "No",
+    parentCaretaker: "No",
+    preferredLanguage: "English",
     ichraStatus: "No ICHRA",
     form8962Filed: "Yes",
     willFileTaxes: "Yes",
@@ -113,8 +116,14 @@ test("a complete capture reports nothing unanswered", () => {
 });
 
 test("every step is represented, so Edit can reach all of them", () => {
-  const steps = new Set(buildSections(fullDraft()).map((s) => s.step));
-  assert.deepEqual([...steps].sort(), [0, 1, 2, 3, 4, 5]);
+  /* The invariant, not a fixed list: step indices must run 0..n with no gap.
+     A gap means some step of the form has no section pointing at it, so its
+     answers cannot be reached from Review — which is the bug this guards.
+     Written this way because the step count has already changed once, when
+     income moved onto Essentials and its own step disappeared. */
+  const steps = [...new Set(buildSections(fullDraft()).map((s) => s.step))].sort((a, b) => a - b);
+  assert.ok(steps.length > 0, "no sections at all");
+  assert.deepEqual(steps, Array.from({ length: steps.length }, (_, i) => i));
 });
 
 test("each person on the form gets their own section", () => {
@@ -188,7 +197,11 @@ test("a mailing address that differs is reviewed field by field", () => {
 test("income sources that exceed the household total are flagged", () => {
   const d = fullDraft({ householdIncome: 40000, employmentIncome: 44000, spouseEmploymentIncome: 21000 });
   const row = buildSections(d).flatMap((s) => s.rows).find((r) => r.label === "Annual household income");
-  assert.match(String(row?.warn), /more than the household total/);
+  // Asserts the arithmetic, not the sentence: 44,000 + 21,000 against a
+  // 40,000 total. The wording has had to change once already, when the total
+  // and the breakdown ended up on different steps.
+  assert.ok(row?.warn, "no warning was produced");
+  assert.match(String(row?.warn), /65,000/);
 });
 
 test("sources below the total are not flagged — a total need not be itemised", () => {
