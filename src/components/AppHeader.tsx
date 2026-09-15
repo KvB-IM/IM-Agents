@@ -1,4 +1,4 @@
-import { ShieldCheck } from "lucide-react";
+import Image from "next/image";
 
 /**
  * Compact sticky header. Deliberately short — on a 375x667 screen every
@@ -18,11 +18,20 @@ export default function AppHeader({
   return (
     <header className="safe-t sticky top-0 z-30 border-b border-line bg-navy-900 text-white">
       <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <ShieldCheck size={18} className="shrink-0 text-gold-400" aria-hidden />
-          <span className="truncate text-[14px] font-semibold tracking-tight">
-            Insurance Masters
-          </span>
+        <div className="flex min-w-0 items-center">
+          {/* The white wordmark, which only works on this navy — the login
+              page, on cream, uses the square mark instead. Intrinsic size is
+              the file's; CSS sets the height so the header stays as short as
+              it was with the text. `priority`: it is above the fold on every
+              page and there is no reason to lazy-load the brand. */}
+          <Image
+            src="/im-wordmark-white.png"
+            alt="Insurance Masters"
+            width={1333}
+            height={184}
+            priority
+            className="h-5 w-auto"
+          />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {fixture ? (

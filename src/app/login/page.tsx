@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import Image from "next/image";
 import { dbConfigured } from "@/lib/db";
 import { agentFromSession } from "@/lib/auth";
 import LoginForm from "@/components/LoginForm";
@@ -68,8 +68,19 @@ export default async function LoginPage({
 function Brand() {
   return (
     <div className="text-center">
-      <ShieldCheck size={30} className="mx-auto text-gold-500" aria-hidden />
-      <h1 className="mt-2 text-[20px] font-bold tracking-tight text-navy-900">
+      {/* The mark is a solid navy tile, so it reads as an app icon here on the
+          cream background — which is also what it becomes on an iPad home
+          screen (src/app/apple-icon.png). Decorative: the heading names us. */}
+      <Image
+        src="/im-mark.png"
+        alt=""
+        width={2048}
+        height={2048}
+        sizes="64px"
+        priority
+        className="mx-auto size-16 rounded-2xl shadow-sm"
+      />
+      <h1 className="mt-3 text-[20px] font-bold tracking-tight text-navy-900">
         Insurance Masters
       </h1>
       <p className="text-[13px] text-muted">Agent portal</p>
