@@ -21,6 +21,17 @@ export default function SignOutButton() {
       disabled={busy}
       onClick={async () => {
         setBusy(true);
+        /* The draft — SSNs included — lives in this tab's sessionStorage. On a
+           shared iPad the next agent signs in on the same tab, and without
+           this they would inherit it. Cleared BEFORE the network call so a
+           failed logout request cannot leave it behind. */
+        try {
+          sessionStorage.removeItem("im-agent-draft-v1");
+          sessionStorage.removeItem("im-agent-draft-owner");
+          sessionStorage.removeItem("im-agent-capture-ui-v1");
+        } catch {
+          /* unavailable storage: nothing there to leak */
+        }
         try {
           await fetch("/api/auth/logout", { method: "POST" });
         } finally {

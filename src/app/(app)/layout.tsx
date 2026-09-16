@@ -9,7 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const agent = await requireAgent();
 
   return (
-    <DraftProvider>
+    <DraftProvider agentId={agent.id}>
       {/* Either upstream on fixtures earns the badge. Quoting a client off
           invented premiums, or reading a list of invented submissions, are both
           things someone has to be able to see at a glance. */}

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Camera, Check, AlertCircle, Trash2, Loader2 } from "lucide-react";
 import { stageDocument } from "@/lib/stageDocument";
+import { useDraft } from "./DraftContext";
 import { Card, CardHeader, Button } from "./ui";
 
 import type { StagedDocument } from "@/lib/stageDocument";
@@ -28,6 +29,8 @@ export default function LicenseCapture({
   onChange: (doc: StagedDocument | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  /* Uploads are staged under this agent's own path segment — see lib/stageDocument.ts. */
+  const { agentId } = useDraft();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shrunk, setShrunk] = useState<string | null>(null);
@@ -41,7 +44,7 @@ export default function LicenseCapture({
          at submit: "did the photo leave the phone" and "did the CRM accept it"
          are different problems, and only the first needs the client present. */
       setBusy(true);
-      const staged = await stageDocument(file);
+      const staged = await stageDocument(file, agentId);
       if (staged.compressed) {
         setShrunk(`${fmtBytes(staged.originalBytes)} → ${fmtBytes(staged.bytes)}`);
       }

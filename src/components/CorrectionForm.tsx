@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, Check, AlertCircle, Wrench, X, Loader2 } from "lucide-react";
 import { stageDocument } from "@/lib/stageDocument";
+import { useDraft } from "./DraftContext";
 import { Card, CardHeader, Field, TextInput, Button } from "./ui";
 
 interface CorrectionField {
@@ -39,6 +40,8 @@ export default function CorrectionForm({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  /* Uploads are staged under this agent's own path segment — see lib/stageDocument.ts. */
+  const { agentId } = useDraft();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export default function CorrectionForm({
     setUploadError(null);
     setUploading(docLabel);
     try {
-      const staged = await stageDocument(file);
+      const staged = await stageDocument(file, agentId);
       const res = await fetch(`/api/enrollments/${jotId}/attachments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

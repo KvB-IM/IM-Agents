@@ -18,6 +18,13 @@ import { defaultEffectiveDate } from "@/lib/age";
  */
 
 const KEY = "im-agent-draft-v1";
+/**
+ * Who the local draft belongs to. Sign-out clears the draft, but a session can
+ * also end without it — an expired cookie, a closed app, a different agent
+ * signing in on the same tab. A draft whose owner is not the signed-in agent
+ * is discarded unread rather than shown. Belt to sign-out's braces.
+ */
+const OWNER_KEY = "im-agent-draft-owner";
 const MIRROR_DEBOUNCE_MS = 1500;
 
 /**
@@ -148,11 +155,20 @@ interface Ctx {
    * the review says "on file", and the submit route merges the number in.
    */
   heldSsnKeys: string[];
+  /** The signed-in agent, for anything client-side that must be scoped to them. */
+  agentId: string;
 }
 
 const DraftCtx = createContext<Ctx | null>(null);
 
-export function DraftProvider({ children }: { children: React.ReactNode }) {
+export function DraftProvider({
+  agentId,
+  children,
+}: {
+  /** The signed-in agent. The local draft is bound to this id. */
+  agentId: string;
+  children: React.ReactNode;
+}) {
   const [draft, setDraft] = useState<CaptureDraft>(emptyDraft);
   const [loaded, setLoaded] = useState(false);
   const [heldSsnKeys, setHeldSsnKeys] = useState<string[]>([]);
@@ -165,8 +181,16 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       let local: CaptureDraft | null = null;
       try {
-        const raw = sessionStorage.getItem(KEY);
-        if (raw) local = withDefaults(JSON.parse(raw) as CaptureDraft);
+        const owner = sessionStorage.getItem(OWNER_KEY);
+        if (owner !== agentId) {
+          /* Another agent's, or from before ownership was recorded. Either
+             way it is not this agent's to see. Removed, not merely ignored. */
+          sessionStorage.removeItem(KEY);
+          sessionStorage.removeItem("im-agent-capture-ui-v1");
+        } else {
+          const raw = sessionStorage.getItem(KEY);
+          if (raw) local = withDefaults(JSON.parse(raw) as CaptureDraft);
+        }
       } catch {
         /* corrupt or unavailable storage: start clean rather than fail */
       }
@@ -196,16 +220,17 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [agentId]);
 
   useEffect(() => {
     if (!loaded) return;
     try {
+      sessionStorage.setItem(OWNER_KEY, agentId);
       sessionStorage.setItem(KEY, JSON.stringify(draft));
     } catch {
       /* private mode or full quota: the draft still works in memory */
     }
-  }, [draft, loaded]);
+  }, [draft, loaded, agentId]);
 
   /* The mirror. Debounced so a burst of keystrokes is one write; skipped while
    * nothing has been captured; silent on failure because the browser copy is
@@ -279,6 +304,7 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
     setDraft(fresh);
     try {
       sessionStorage.removeItem(KEY);
+      sessionStorage.removeItem(OWNER_KEY);
     } catch {
       /* nothing to clear */
     }
@@ -286,7 +312,17 @@ export function DraftProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DraftCtx.Provider
-      value={{ draft, patch, patchPerson, addPerson, removePerson, reset, loaded, heldSsnKeys }}
+      value={{
+        draft,
+        patch,
+        patchPerson,
+        addPerson,
+        removePerson,
+        reset,
+        loaded,
+        heldSsnKeys,
+        agentId,
+      }}
     >
       {children}
     </DraftCtx.Provider>

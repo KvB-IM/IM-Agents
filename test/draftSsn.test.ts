@@ -32,6 +32,14 @@ test("a partial SSN is neither stored nor kept in the payload", () => {
   assert.equal(payload.people[0].ssn, "");
 });
 
+test("an UNCONFIRMED SSN is not held — resume must not launder a typo into a confirmed number", () => {
+  // Nine digits, valid, but the re-entry does not match (or is absent).
+  assert.deepEqual(splitSsns(draft([person({ ssn: "529841063", ssnConfirm: "529841036" })])).ssns, {});
+  assert.deepEqual(splitSsns(draft([person({ ssn: "529841063", ssnConfirm: "" })])).ssns, {});
+  // Structurally impossible numbers are not held either, even when "confirmed".
+  assert.deepEqual(splitSsns(draft([person({ ssn: "000123456", ssnConfirm: "000123456" })])).ssns, {});
+});
+
 test("an attested never-issued SSN is not held even if digits linger", () => {
   const { ssns } = splitSsns(draft([person({ noSsn: true })]));
   assert.deepEqual(ssns, {});

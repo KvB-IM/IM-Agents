@@ -72,6 +72,23 @@ export function isStagedUrl(url: unknown): url is string {
   return parsed.pathname.slice(1).startsWith(STAGING_PREFIX);
 }
 
+/**
+ * Does this staged URL belong to this agent?
+ *
+ * Uploads are staged under `staged/licenses/<agentId>/…` — the token route
+ * refuses any other path for the session that asked — so ownership is a
+ * property of the path itself and needs no lookup. Checked at attach time:
+ * without it, an agent holding another agent's staged URL could attach that
+ * document to their own record and, on success, have its staged copy deleted.
+ * `isStagedUrl` remains the coarser "is this ours at all" check the sweep
+ * relies on.
+ */
+export function stagedUrlOwnedBy(url: string, agentId: string): boolean {
+  if (!isStagedUrl(url)) return false;
+  const path = new URL(url).pathname.slice(1);
+  return path.startsWith(`${STAGING_PREFIX}${agentId}/`);
+}
+
 export interface StagedFile {
   buffer: Buffer;
   contentType: string;

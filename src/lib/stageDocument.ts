@@ -27,7 +27,7 @@ export interface StageResult extends StagedDocument {
   compressed: boolean;
 }
 
-export async function stageDocument(file: File): Promise<StageResult> {
+export async function stageDocument(file: File, agentId: string): Promise<StageResult> {
   const result = await compressImage(file);
   if (result.passthrough && result.reason) {
     // Not surfaced to the agent: the upload still works, and "compression fell
@@ -40,8 +40,11 @@ export async function stageDocument(file: File): Promise<StageResult> {
    * and because that response carries no CORS headers the browser reports it
    * as an unexplained CORS failure. The two are declared in one place. */
   const blob = await upload(
-    // Prefixed here, not rewritten server-side — see STAGING_PREFIX.
-    `${STAGING_PREFIX}${Date.now()}-${safeName(file.name)}`,
+    /* Prefixed here, not rewritten server-side — see STAGING_PREFIX. The agent
+       id segment is what binds the upload to its owner: the token route refuses
+       any other segment for this session, and the attach route refuses a URL
+       outside the caller's own segment. */
+    `${STAGING_PREFIX}${agentId}/${Date.now()}-${safeName(file.name)}`,
     result.file,
     { access: BLOB_ACCESS, handleUploadUrl: "/api/uploads/token" },
   );

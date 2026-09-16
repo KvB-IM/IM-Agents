@@ -36,8 +36,11 @@ export async function POST(request: NextRequest) {
          * below does NOT override what the client asked for — the file lands
          * where the client said — so this is enforcement, not decoration. It
          * keeps the sweep's blast radius and isStagedUrl's guarantee honest. */
-        if (!pathname.startsWith(STAGING_PREFIX)) {
-          throw new Error(`upload path must start with ${STAGING_PREFIX}`);
+        if (!pathname.startsWith(`${STAGING_PREFIX}${agent.id}/`)) {
+          /* The agent's own segment, not merely the prefix. This is what makes
+             a staged URL provably the uploader's: lib/staging.ts's
+             stagedUrlOwnedBy reads ownership straight off the path. */
+          throw new Error(`upload path must start with ${STAGING_PREFIX}<your agent id>/`);
         }
 
         /* Logged without the filename. Agents name files after the client, and

@@ -1,4 +1,4 @@
-import { ssnDigits } from "./ssn.ts";
+import { ssnDigits, ssnConfirmed } from "./ssn.ts";
 import type { CaptureDraft } from "./types.ts";
 
 /**
@@ -23,16 +23,18 @@ export type HeldSsns = Record<string, string>;
 /**
  * Take complete SSNs out of a draft.
  *
- * Only a COMPLETE nine-digit number is worth holding: a partial one would be
- * asked for again on resume anyway, and encrypting fragments buys nothing. The
- * confirmation entry is never stored — it exists to catch a typo at the
- * keyboard and is otherwise a second copy of the same number.
+ * Only a CONFIRMED number is held — nine digits, structurally valid, and
+ * matching its re-entry. Anything less is asked for again on resume. This
+ * matters because merge fills BOTH fields from the held value: holding an
+ * unconfirmed entry would turn a number typed once, possibly wrong, into one
+ * that reads as confirmed after a resume — the exact typo the second box
+ * exists to catch. The confirmation itself is never stored.
  */
 export function splitSsns(draft: CaptureDraft): { payload: CaptureDraft; ssns: HeldSsns } {
   const ssns: HeldSsns = {};
   const people = draft.people.map((p) => {
     const digits = ssnDigits(p.ssn);
-    if (digits.length === 9 && !p.noSsn) ssns[p.key] = digits;
+    if (!p.noSsn && ssnConfirmed(digits, p.ssnConfirm)) ssns[p.key] = digits;
     return { ...p, ssn: "", ssnConfirm: "" };
   });
   return { payload: { ...draft, people }, ssns };

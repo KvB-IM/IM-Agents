@@ -1,7 +1,9 @@
 import "server-only";
 import type { Jot } from "./types";
 import type { AgentScope } from "./scope";
-import { zohoConfigured } from "./zoho";
+import { zohoConfigured, ZohoError } from "./zoho";
+import { dbConfigured } from "./db";
+import { fixturesAllowed } from "./fixtureGate";
 import * as zohoRepo from "./jotsRepo";
 import * as fixtureRepo from "./fixtureRepo";
 
@@ -30,8 +32,29 @@ export async function usingLiveCrm(): Promise<boolean> {
   return zohoConfigured();
 }
 
+/**
+ * Which backend answers. Live when the CRM is connected; fixtures ONLY where
+ * lib/fixtureGate.ts permits; otherwise the CRM is unavailable and this
+ * throws — an upstream-shaped error, so every route reports it the way it
+ * reports any other Zoho failure and the submit route settles its replay
+ * buffer as an error instead of a success that never happened.
+ */
 async function repo() {
-  return (await zohoConfigured()) ? zohoRepo : fixtureRepo;
+  if (await zohoConfigured()) return zohoRepo;
+  if (
+    fixturesAllowed({
+      databaseConfigured: dbConfigured(),
+      allowFixtureData: process.env.ALLOW_FIXTURE_DATA,
+      nodeEnv: process.env.NODE_ENV,
+    })
+  ) {
+    return fixtureRepo;
+  }
+  throw new ZohoError(
+    503,
+    "The CRM is not connected right now. Nothing was sent — an admin may need to reconnect Zoho.",
+    "CRM unavailable: zohoConfigured() is false and fixtures are not permitted here",
+  );
 }
 
 export async function listJots(scope: AgentScope): Promise<Jot[]> {

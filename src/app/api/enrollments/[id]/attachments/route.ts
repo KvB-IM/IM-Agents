@@ -4,7 +4,13 @@ import { AgentScope } from "@/lib/scope";
 import { getJot } from "@/lib/store";
 import { isUpstreamError } from "@/lib/zoho";
 import { uploadAttachment, attachmentExists, listAttachments } from "@/lib/attachments";
-import { readStaged, discardStaged, isStagedUrl, stagingConfigured } from "@/lib/staging";
+import {
+  readStaged,
+  discardStaged,
+  isStagedUrl,
+  stagedUrlOwnedBy,
+  stagingConfigured,
+} from "@/lib/staging";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +90,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
   }
   const url = body.url;
+
+  /* Ownership of the RECORD was checked above via getJot's scope; this is
+     ownership of the FILE. Without it, a staged URL obtained from another
+     agent could be attached to this agent's Jot — and its staged copy deleted
+     on success, which destroys the other agent's upload. */
+  if (!stagedUrlOwnedBy(url, agent.id)) {
+    return NextResponse.json(
+      { error: "That upload was not staged by this account." },
+      { status: 403 },
+    );
+  }
 
   /* Filename is used verbatim in a multipart part name, so strip path
    * separators and bound the length. */

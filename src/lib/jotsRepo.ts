@@ -149,14 +149,33 @@ function normalize(row: JotRow): Jot {
  * flagged sortable in the field metadata. That means the ordering is exact
  * across the whole result and not merely within a page.
  */
-export async function listJots(scope: AgentScope, limit = 200): Promise<Jot[]> {
-  const query =
-    `select ${PIPELINE_COLUMNS} from ${JOT_MODULE} ` +
-    `where Submitting_Field_Agent = ${coqlLiteral(scope.agentName)} ` +
-    `order by Submission_Time desc limit ${Math.min(Math.max(1, limit), 200)}`;
+/** COQL returns at most 200 rows per call; pages are walked with offset. */
+const COQL_PAGE = 200;
+/**
+ * How far back the submissions list and the KPIs look. COQL's offset ceiling is
+ * 2000, so this is also the API's own limit. An agent with more Jots than this
+ * is a very good year; the KPIs would then be computed on their most recent
+ * 2000, and the health check should say so before anyone trusts a total.
+ */
+export const LIST_CEILING = 2000;
 
-  const page = await coql<JotRow>(query);
-  return page.rows.map(normalize);
+export async function listJots(scope: AgentScope, ceiling = LIST_CEILING): Promise<Jot[]> {
+  /* Paged, not capped. The first version fetched one page of 200 and stopped,
+   * so an agent's 201st-oldest Jot — and every requirement still open on it —
+   * simply vanished from the list, and every KPI was computed on a subset with
+   * no indication it was one. Ordering is in the query, so pages are stable. */
+  const rows: JotRow[] = [];
+  for (let offset = 0; offset < ceiling; offset += COQL_PAGE) {
+    const take = Math.min(COQL_PAGE, ceiling - offset);
+    const query =
+      `select ${PIPELINE_COLUMNS} from ${JOT_MODULE} ` +
+      `where Submitting_Field_Agent = ${coqlLiteral(scope.agentName)} ` +
+      `order by Submission_Time desc limit ${take} offset ${offset}`;
+    const page = await coql<JotRow>(query);
+    rows.push(...page.rows);
+    if (!page.moreRecords || page.rows.length < take) break;
+  }
+  return rows.map(normalize);
 }
 
 /**

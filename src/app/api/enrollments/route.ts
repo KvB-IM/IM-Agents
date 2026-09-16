@@ -305,7 +305,14 @@ export async function POST(request: NextRequest) {
       // The detail is logged; the agent sees only the sentence written for a
       // person, which for a rejected field names the field.
       console.error("[enrollments] create failed:", err.message);
-      if (buffered) await settleAttempt(formId, "rejected", { error: err.message });
+      /* Zoho saying NO (4xx: a bad field) is "rejected". The CRM being
+         unreachable or not connected (5xx) is "error" — reconciliation treats
+         both as unsettled, but the office reads the word. */
+      if (buffered) {
+        await settleAttempt(formId, err.status >= 500 ? "error" : "rejected", {
+          error: err.message,
+        });
+      }
       /* Tell the agent it was saved. This is the COMMON failure path — a Zoho
        * rejection arrives as an upstream error — and it previously returned
        * Zoho's message alone, so an agent whose form WAS safely buffered had
