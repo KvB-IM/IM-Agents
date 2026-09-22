@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Calculator, ClipboardList, LayoutList, Phone, User } from "lucide-react";
+import { ClipboardList, LayoutList, Phone, User } from "lucide-react";
 import { OFFICE_PHONE_DISPLAY, OFFICE_PHONE_HREF } from "@/lib/office";
 
 /**
@@ -11,17 +11,17 @@ import { OFFICE_PHONE_DISPLAY, OFFICE_PHONE_HREF } from "@/lib/office";
  * Bottom, not top: this is used one-handed and standing up, and the top of a
  * 6.1" screen is out of thumb reach.
  *
- * Four DESTINATIONS, plus one ACTION. The fifth slot is "Call office" — a
+ * Three DESTINATIONS, plus one ACTION. Quote and Application used to be two
+ * tabs over one draft; they are one flow now — Enroll — so the bar is back to
+ * the four targets the original comment wanted. The last slot is "Call office" — a
  * `tel:` link, not a route: it hands off to the dialer and leaves the page
  * exactly where it was, which is the point when an agent is mid-application
- * with a client and needs the office. Five columns puts each target at ~75px
- * on a 375px screen, still comfortably above the 44px minimum; it is drawn in
+ * with a client and needs the office. It is drawn in
  * the accent colour so it reads as a button among tabs rather than a fifth
  * place to go.
  */
 const TABS = [
-  { href: "/quote", label: "Quote", Icon: Calculator },
-  { href: "/capture", label: "Application", Icon: ClipboardList },
+  { href: "/enroll", label: "Enroll", Icon: ClipboardList },
   { href: "/submissions", label: "Submissions", Icon: LayoutList },
   { href: "/me", label: "Me", Icon: User },
 ];
@@ -34,7 +34,7 @@ export default function TabBar() {
       className="safe-b fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 backdrop-blur"
       aria-label="Main"
     >
-      <ul className="mx-auto grid max-w-2xl grid-cols-5">
+      <ul className="mx-auto grid max-w-2xl grid-cols-4">
         {TABS.map(({ href, label, Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (

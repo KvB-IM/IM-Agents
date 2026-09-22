@@ -70,11 +70,33 @@ export default async function MePage({
     <div className="space-y-4">
       <Inset>
         <h1 className="text-[22px] font-bold tracking-tight text-navy-900">{agent.name}</h1>
-        <p className="mt-0.5 text-[13px] text-muted">
-          {agent.agency} · {k.submitted} {k.submitted === 1 ? "form" : "forms"} submitted
-          {k.submittedThisMonth > 0 ? `, ${k.submittedThisMonth} this month` : ""}
-        </p>
+        <p className="mt-0.5 text-[13px] text-muted">{agent.agency}</p>
       </Inset>
+
+      {/* ── Submissions ───────────────────────────────────────────────────
+          The one production number that is the agent's own doing. Four
+          figures, all counted in the office's timezone — a form filed at 9pm
+          is today's, not tomorrow's. */}
+      <Card>
+        <CardHeader title="Your submissions" hint="Forms you have filed, by when." />
+        <dl className="grid grid-cols-4 divide-x divide-line px-2 pb-4">
+          {(
+            [
+              ["Today", k.submissions.today],
+              ["Yesterday", k.submissions.yesterday],
+              ["This week", k.submissions.thisWeek],
+              ["Total", k.submissions.total],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="px-2 text-center">
+              <dd className="text-[24px] font-bold leading-none tracking-tight text-navy-900">
+                {value}
+              </dd>
+              <dt className="mt-1.5 text-[11px] font-medium leading-tight text-muted">{label}</dt>
+            </div>
+          ))}
+        </dl>
+      </Card>
 
       {/* ── The funnel ─────────────────────────────────────────────────── */}
       <Card>
@@ -142,6 +164,11 @@ export default async function MePage({
           <li>
             <strong className="font-semibold text-navy-800">Sitting still</strong> is a prompt to
             call the office, not a judgement.
+          </li>
+          <li>
+            <strong className="font-semibold text-navy-800">Your submissions</strong> are counted
+            by Eastern time, and the week starts on Monday — so they match the office&apos;s
+            calendar, not the server&apos;s clock.
           </li>
         </ul>
       </Card>

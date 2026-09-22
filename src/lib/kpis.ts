@@ -1,6 +1,7 @@
 import "server-only";
 import type { Jot } from "./types";
 import { daysSince } from "./format";
+import { submissionCounts, type SubmissionCounts } from "./submissionCounts";
 import {
   STAGES, stageKeyOf, stageMeta, isTerminal,
   ENROLLED, FAILED, UNSTAGED, type StageKey,
@@ -31,6 +32,8 @@ export interface StageCount {
 export interface Kpis {
   submitted: number;
   submittedThisMonth: number;
+  /** Today / yesterday / this week / total, in the office's timezone. */
+  submissions: SubmissionCounts;
   /** Per-stage breakdown, funnel order. Empty buckets are dropped except the
    *  ones that are always meaningful to see at zero. */
   stages: StageCount[];
@@ -90,6 +93,7 @@ export function computeKpis(jots: Jot[], now = new Date()): Kpis {
   return {
     submitted: total,
     submittedThisMonth: jots.filter((j) => j.submittedAt.slice(0, 7) === thisMonth).length,
+    submissions: submissionCounts(jots, now),
     stages,
     enrolled,
     failed,

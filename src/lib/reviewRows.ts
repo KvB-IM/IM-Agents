@@ -106,37 +106,6 @@ export function buildSections(
     });
   }
 
-  // ── Home address ───────────────────────────────────────────────────────
-  const homeRows: Row[] = [
-    req("Street", draft.street),
-    req("City", draft.city),
-    { label: "ZIP", value: draft.zip || "—", missing: !draft.zip },
-    req("County", draft.county ? `${draft.county.name}, ${draft.county.state}` : ""),
-  ];
-  // Only meaningful with more than one person on the form.
-  if (draft.people.length > 1) {
-    homeRows.push(req("Everyone applying lives here", draft.everyoneSameAddress));
-  }
-  sections.push({ title: "Home address", step: 1, rows: homeRows });
-
-  // ── Mailing address ────────────────────────────────────────────────────
-  sections.push({
-    title: "Mailing address",
-    step: 1,
-    rows: draft.mailingSameAsHome
-      ? [{ label: "Mailing address", value: "Same as the home address" }]
-      : [
-          req("Street", draft.mailingStreet),
-          req("City", draft.mailingCity),
-          req("State", draft.mailingState),
-          req("ZIP", draft.mailingZip),
-        ],
-  });
-
-  /* ── Contact, household and income ──────────────────────────────────────
-   * These moved to step 0 with the handoff set, so Edit has to follow them.
-   * A section carries one step for all its rows, which is why they are grouped
-   * here rather than left in the sections they used to belong to. */
   const parts = [draft.employmentIncome, draft.spouseEmploymentIncome, draft.otherIncome]
     .map((n) => n ?? 0)
     .reduce((a, b) => a + b, 0);
@@ -147,21 +116,81 @@ export function buildSections(
    * agents to ignore the warning that matters. */
   const overshoot = total > 0 && parts > total;
 
+  // ── Where, when, and the household figures — the Household step ───────
   sections.push({
-    title: "Contact, household and income",
+    title: "Household",
     step: 0,
     rows: [
-      req("Email", draft.email),
-      req("Mobile", draft.phone),
-      opt("Home phone", draft.homePhone),
+      { label: "ZIP", value: draft.zip || "—", missing: !draft.zip },
+      req("County", draft.county ? `${draft.county.name}, ${draft.county.state}` : ""),
+      { label: "Effective", value: monthYear(draft.requestedEffective) },
       req("Household size", String(draft.householdSize ?? effectiveHouseholdSize(draft))),
       req(
         "Annual household income",
         draft.householdIncome === null ? "" : money(draft.householdIncome),
         overshoot
-          ? `The sources on Income detail add up to ${money(parts)}, more than this total.`
+          ? `The sources on Essentials add up to ${money(parts)}, more than this total.`
           : undefined,
       ),
+    ],
+  });
+
+  // ── Plan — the Plans step ──────────────────────────────────────────────
+  const plan = draft.selectedPlan;
+  sections.push({
+    title: "Plan",
+    step: 1,
+    rows: plan
+      ? [
+          { label: "Plan", value: plan.planName },
+          { label: "Carrier", value: plan.carrier },
+          { label: "Metal level", value: plan.metalLevel || "—" },
+          { label: "Premium", value: money(plan.premium) },
+          { label: "Tax credit", value: plan.aptc ? `−${money(plan.aptc)}` : "$0" },
+          { label: "Net to client", value: money(plan.netPremium) },
+          { label: "Deductible", value: plan.deductible === null ? "—" : money(plan.deductible) },
+          { label: "Max out of pocket", value: plan.moop === null ? "—" : money(plan.moop) },
+        ]
+      : [req("Plan", "")],
+  });
+
+  // ── Home address ───────────────────────────────────────────────────────
+  const homeRows: Row[] = [
+    req("Street", draft.street),
+    req("City", draft.city),
+  ];
+  // Only meaningful with more than one person on the form.
+  if (draft.people.length > 1) {
+    homeRows.push(req("Everyone applying lives here", draft.everyoneSameAddress));
+  }
+  sections.push({ title: "Home address", step: 3, rows: homeRows });
+
+  // ── Mailing address ────────────────────────────────────────────────────
+  sections.push({
+    title: "Mailing address",
+    step: 3,
+    rows: draft.mailingSameAsHome
+      ? [{ label: "Mailing address", value: "Same as the home address" }]
+      : [
+          req("Street", draft.mailingStreet),
+          req("City", draft.mailingCity),
+          req("State", draft.mailingState),
+          req("ZIP", draft.mailingZip),
+        ],
+  });
+
+  /* ── Essentials ────────────────────────────────────────────────────────
+   * Contact, the income breakdown and the eligibility answers. The household
+   * total and size are on the Household step above, so the overshoot warning
+   * sits there and names this step. */
+
+  sections.push({
+    title: "Essentials",
+    step: 2,
+    rows: [
+      req("Email", draft.email),
+      req("Mobile", draft.phone),
+      opt("Home phone", draft.homePhone),
       opt("Employment income", draft.employmentIncome === null ? "" : money(draft.employmentIncome)),
       opt("Employer", draft.employer),
       opt(
@@ -199,12 +228,12 @@ export function buildSections(
           },
     );
   }
-  sections.push({ title: "Tax household", step: 2, rows: taxRows });
+  sections.push({ title: "Tax household", step: 4, rows: taxRows });
 
   // ── Eligibility ────────────────────────────────────────────────────────
   sections.push({
     title: "Eligibility",
-    step: 2,
+    step: 4,
     rows: [
       req("Currently incarcerated", draft.incarcerated),
       req("American Indian or Alaska Native", draft.americanIndianAkNative),
@@ -232,32 +261,12 @@ export function buildSections(
     req("ICHRA", draft.ichraStatus),
     req("Filed Form 8962", draft.form8962Filed),
   );
-  sections.push({ title: "Coverage and enrollment", step: 3, rows: covRows });
-
-  // ── Plan ───────────────────────────────────────────────────────────────
-  const plan = draft.selectedPlan;
-  if (plan) {
-    sections.push({
-      title: "Plan",
-      step: 4,
-      rows: [
-        { label: "Plan", value: plan.planName },
-        { label: "Carrier", value: plan.carrier },
-        { label: "Metal level", value: plan.metalLevel || "—" },
-        { label: "Effective", value: monthYear(draft.requestedEffective) },
-        { label: "Premium", value: money(plan.premium) },
-        { label: "Tax credit", value: plan.aptc ? `−${money(plan.aptc)}` : "$0" },
-        { label: "Net to client", value: money(plan.netPremium) },
-        { label: "Deductible", value: plan.deductible === null ? "—" : money(plan.deductible) },
-        { label: "Max out of pocket", value: plan.moop === null ? "—" : money(plan.moop) },
-      ],
-    });
-  }
+  sections.push({ title: "Coverage and enrollment", step: 5, rows: covRows });
 
   // ── Photo ID ───────────────────────────────────────────────────────────
   sections.push({
     title: "Photo ID",
-    step: 4,
+    step: 6,
     rows: [
       draft.photoId
         ? { label: "License photo", value: draft.photoId.filename }

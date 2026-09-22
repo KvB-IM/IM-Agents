@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Send,
+  Search,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -16,10 +16,13 @@ import {
 } from "lucide-react";
 import { useDraft } from "@/components/DraftContext";
 import PersonEditor from "@/components/PersonEditor";
-import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Empty, Inset } from "@/components/ui";
+import HouseholdStep from "@/components/enroll/HouseholdStep";
+import PlansStep from "@/components/enroll/PlansStep";
+import { useQuote } from "@/components/enroll/useQuote";
+import { quoteBlocker } from "@/lib/quoteReady.ts";
+import { Card, CardHeader, Field, TextInput, Select, Toggle, Button, Inset } from "@/components/ui";
 import { money, monthYear, shortDate } from "@/lib/format";
 import { ssnConfirmed, ssnDigits } from "@/lib/ssn";
-import { effectiveHouseholdSize } from "@/lib/household";
 import LicenseCapture from "@/components/LicenseCapture";
 import ReviewSummary from "@/components/ReviewSummary";
 import { buildSections } from "@/lib/reviewRows.ts";
@@ -30,18 +33,40 @@ import { ENROLLMENT_EVENT_GROUPS, outsideSixtyDayWindow } from "@/lib/enrollment
 import type { EnrollmentPath, Jot } from "@/lib/types";
 
 /**
- * The application, in HealthSherpa's own screen order.
+ * Enroll: one flow from a household to a filed application.
  *
- * The order is not ours: JOT_FIELDS in IM_CRM_Frontend/server/lines/aca.js is
- * deliberately grouped by HealthSherpa step, because a back-office enroller
- * reads the resulting Jot card while typing into HealthSherpa. Keeping the same
- * order here means the agent captures in the sequence the office will re-read.
+ * Quote and Application used to be two tabs writing to the same draft, with a
+ * "Quote first" gate between them and six fields asked on both. They are one
+ * stepper now. The order encodes the one thing worth protecting from the old
+ * split — a PRICE comes before IDENTITY:
  *
- * A stepper rather than one long page, unlike the quote: this is worked once,
- * front to back, and 40 fields on one scroll is where things get skipped.
+ *   1 Household    where, who (names, DoB, sex, tobacco), size, income
+ *   2 Plans        the quote; pick one                     — nothing filed yet
+ *   3 Essentials   SSNs, contact, income detail, eligibility, language
+ *                  ┌ Submit and hand off to HealthSherpa
+ *                  └ Continue on this form
+ *   4–7            Address, Tax household, Coverage, Review   (office path)
+ *
+ * Stop after step 2 and nothing has been captured that identifies anyone.
+ *
+ * From Essentials onward the order is HealthSherpa's own screen order, not
+ * ours: JOT_FIELDS in IM_CRM_Frontend/server/lines/aca.js is grouped by
+ * HealthSherpa step because a back-office enroller reads the Jot card while
+ * typing into HealthSherpa, so the agent captures in the sequence the office
+ * re-reads.
  */
 
-const STEPS = ["Essentials", "Address", "Household", "Coverage", "Review"] as const;
+const STEPS = [
+  "Household",
+  "Plans",
+  "Essentials",
+  "Address",
+  "Tax household",
+  "Coverage",
+  "Review",
+] as const;
+/** The fork lives at the end of this step. */
+const ESSENTIALS = 2;
 
 /**
  * Whether to offer the HealthSherpa handoff as a second way to file.
@@ -58,19 +83,10 @@ const HS_HANDOFF_ENABLED = process.env.NEXT_PUBLIC_HS_ENROLLMENT_ENABLED === "tr
 /** Where the agent is in the form. Beside the draft, and cleared with it. */
 const UI_KEY = "im-agent-capture-ui-v1";
 
-export default function CapturePage() {
-  /* useSearchParams needs a Suspense boundary above it. */
-  return (
-    <Suspense fallback={null}>
-      <Capture />
-    </Suspense>
-  );
-}
-
-function Capture() {
+export default function EnrollPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { draft, patch, patchPerson, loaded, reset, heldSsnKeys } = useDraft();
+  const { plans, quoting, error: quoteError, runQuote } = useQuote(draft);
   /**
    * Whether the form is open, and which step — persisted, not component state.
    *
@@ -91,28 +107,21 @@ function Capture() {
   const [ui, setUi] = useState<CaptureUi | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  /* Read once. `?start=1` means the agent just chose "Continue to application"
-   * on the quote, which IS the decision to start filling it in — so it opens
-   * the form directly. Captured in a ref because the URL is scrubbed
-   * immediately afterwards and this must not re-fire and force the form back
-   * open after a Close. */
-  const startRequested = useRef(searchParams.get("start") === "1");
+  /* Nothing captured yet means there is nothing to summarise: open the
+   * stepper at Household directly rather than showing a gate. */
+  const nothingCaptured = !(
+    draft.zip ||
+    draft.selectedPlan ||
+    draft.householdIncome !== null ||
+    draft.people.some((p) => p.firstName || p.lastName || p.dateOfBirth)
+  );
 
   useEffect(() => {
     if (!loaded) return;
-    const saved = readCaptureUi(
-      sessionStorage.getItem(UI_KEY),
-      draft.id,
-      STEPS.length,
-    );
-    setUi(startRequested.current ? { ...saved, editing: true } : saved);
-    if (startRequested.current) {
-      startRequested.current = false;
-      /* Drop the parameter now rather than on Close. Left in the URL, a
-         refresh would reopen the form and undo whatever the agent last did. */
-      router.replace("/capture");
-    }
-  }, [loaded, draft.id, router]);
+    const saved = readCaptureUi(sessionStorage.getItem(UI_KEY), draft.id, STEPS.length);
+    setUi(nothingCaptured ? { ...saved, editing: true, step: 0 } : saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the draft identity changes, not on every keystroke
+  }, [loaded, draft.id]);
 
   useEffect(() => {
     if (!ui) return;
@@ -175,9 +184,9 @@ function Capture() {
        Checked in the same place as the SSN for the same reason: finding out at
        submit means navigating back through the form to a masked field. */
     const first = draft.people.find((x) => x.relation === "primary") ?? draft.people[0];
-    if (!first?.firstName?.trim()) return "The applicant needs a first name.";
-    if (!first?.lastName?.trim()) return "The applicant needs a last name.";
-    if (!first?.dateOfBirth) return "The applicant needs a date of birth.";
+    if (!first?.firstName?.trim()) return "The applicant needs a first name — on the Household step.";
+    if (!first?.lastName?.trim()) return "The applicant needs a last name — on the Household step.";
+    if (!first?.dateOfBirth) return "The applicant needs a date of birth — on the Household step.";
 
     const covered = draft.people.filter((p) => p.seekingCoverage);
     for (const person of covered) {
@@ -207,7 +216,26 @@ function Capture() {
     return null;
   })();
 
-  const blocker = step === 0 ? applicantBlocker : null;
+  /* Each step's reason it cannot be left yet, or null. */
+  const blocker =
+    step === 0
+      ? quoteBlocker(draft)
+      : step === 1
+        ? draft.selectedPlan
+          ? null
+          : "Pick a plan to continue."
+        : step === ESSENTIALS
+          ? applicantBlocker
+          : null;
+
+  /* The Plans step with no list — a resumed session, or Back then forward.
+   * Re-run from the Household inputs rather than show an empty step. */
+  useEffect(() => {
+    if (step === 1 && editing && plans === null && !quoting && quoteBlocker(draft) === null) {
+      void runQuote();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on arrival at the step, not on every draft edit
+  }, [step, editing, plans, quoting]);
   const onReview = step === STEPS.length - 1;
 
   /**
@@ -355,88 +383,17 @@ function Capture() {
           <Button
             variant="secondary"
             onClick={() => {
+              /* Same tab, fresh draft. The init effect sees the new draft id
+                 with nothing captured and opens Household. */
+              setSubmitted(null);
+              setHandoff(null);
+              setHandoffError(null);
+              setPhotoWarning(null);
               reset();
-              router.push("/quote");
             }}
           >
-            Start another quote
+            Start another enrollment
           </Button>
-        </Inset>
-      </div>
-    );
-  }
-
-  // ── No plan selected ─────────────────────────────────────────────────────
-  if (!draft.selectedPlan) {
-    /* Whether anything has actually been captured yet. Without this the tab
-     * said "Quote first" to an agent who had already entered a household, its
-     * dates of birth and an income on the quote page — the data was saved and
-     * the screen implied it was not, which is the worst possible thing for a
-     * form to say to someone who was interrupted. */
-    const capturedName = [primary?.firstName, primary?.lastName].filter(Boolean).join(" ");
-    const hasWork = Boolean(
-      draft.zip || capturedName || draft.people.some((p) => p.dateOfBirth) ||
-        draft.householdIncome !== null,
-    );
-
-    if (!hasWork) {
-      return (
-        <div className="space-y-4">
-          <Empty
-            title="Quote first"
-            body="The application needs a plan on it. Run a quote and pick one, then come back."
-          />
-          <Inset>
-            <Link href="/quote" className="block">
-              <Button variant="secondary">Go to quote</Button>
-            </Link>
-          </Inset>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        <Inset>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gold-600">
-            Unfinished application
-          </p>
-          <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight text-navy-900">
-            {capturedName || "No name captured yet"}
-          </h1>
-          <p className="mt-1 text-[13px] leading-snug text-muted">
-            Saved here and backed up to the office server for 15 days. It needs a plan before
-            the rest of the application can be filled in.
-          </p>
-        </Inset>
-
-        <Card>
-          <CardHeader title="Captured so far" />
-          <dl className="divide-y divide-line px-4 pb-2">
-            {[
-              ["People on the form", String(draft.people.length)],
-              ["County", draft.county ? `${draft.county.name}, ${draft.county.state}` : "—"],
-              ["Effective", monthYear(draft.requestedEffective)],
-              [
-                "Household income",
-                draft.householdIncome === null ? "—" : money(draft.householdIncome),
-              ],
-              ["Plan", "Not chosen yet"],
-            ].map(([k, v]) => (
-              <div key={k} className="flex items-baseline justify-between gap-4 py-2.5">
-                <dt className="text-[13px] text-muted">{k}</dt>
-                <dd className="text-right text-[13px] font-medium text-navy-900">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-
-        <Inset>
-          <Link href="/quote" className="block">
-            <Button>
-              Choose a plan for {capturedName || "this household"}
-            </Button>
-          </Link>
         </Inset>
       </div>
     );
@@ -488,9 +445,12 @@ function Capture() {
           <CardHeader title="What is on it so far" />
           <dl className="divide-y divide-line px-4 pb-2">
             {[
-              ["Plan", draft.selectedPlan.planName],
-              ["Carrier", draft.selectedPlan.carrier],
-              ["Net to client", `${money(draft.selectedPlan.netPremium)}/mo`],
+              ["Plan", draft.selectedPlan?.planName ?? "Not chosen yet"],
+              ["Carrier", draft.selectedPlan?.carrier ?? "—"],
+              [
+                "Net to client",
+                draft.selectedPlan ? `${money(draft.selectedPlan.netPremium)}/mo` : "—",
+              ],
               ["Effective", monthYear(draft.requestedEffective)],
               ["People on the form", String(draft.people.length)],
               ["County", draft.county ? `${draft.county.name}, ${draft.county.state}` : "—"],
@@ -568,7 +528,7 @@ function Capture() {
       {/* ── Stepper ────────────────────────────────────────────────────── */}
       <Inset>
         <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Application</h1>
+          <h1 className="text-[22px] font-bold tracking-tight text-navy-900">Enroll</h1>
           <div className="flex shrink-0 items-center gap-3">
             <span className="text-[12px] font-medium text-muted">
               {step + 1} of {STEPS.length}
@@ -597,7 +557,8 @@ function Capture() {
         <p className="mt-1.5 text-[13px] font-medium text-navy-700">{STEPS[step]}</p>
       </Inset>
 
-      {/* ── Selected plan, always visible ──────────────────────────────── */}
+      {/* ── Selected plan, visible once there is one and the list is not on screen ── */}
+      {draft.selectedPlan && step !== 1 ? (
       <div className="mx-4 flex items-center justify-between gap-3 rounded-xl bg-navy-50 px-3.5 py-2.5 ring-1 ring-navy-100">
         <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-navy-900">
@@ -612,16 +573,36 @@ function Capture() {
           <span className="text-[11px] font-medium text-muted">/mo</span>
         </p>
       </div>
+      ) : null}
 
-      {/* ── Step 0: Applicant ──────────────────────────────────────────── */}
-      {step === 0 ? (
+      {/* ── Step 0: Household ─────────────────────────────────────────── */}
+      {step === 0 ? <HouseholdStep /> : null}
+
+      {/* ── Step 1: Plans ─────────────────────────────────────────────── */}
+      {step === 1 ? (
+        quoting || plans === null ? (
+          <Inset>
+            <p className="flex items-center gap-2 text-[14px] text-muted">
+              <Search size={16} className="animate-pulse" aria-hidden />
+              {quoting ? "Quoting…" : quoteError ?? "Getting plans…"}
+            </p>
+          </Inset>
+        ) : (
+          <PlansStep plans={plans} />
+        )
+      ) : null}
+
+      {/* ── Step 2: Essentials ────────────────────────────────────────── */}
+      {step === ESSENTIALS ? (
         <div className="space-y-4">
           <Card>
             <CardHeader
-              title="Applicant and household members"
-              hint="Each SSN is entered twice. Digits hide as you type."
+              title="Social Security numbers"
+              hint="For everyone seeking coverage. Entered twice; digits hide as you type."
             />
             <div>
+              {/* Names, dates of birth, sex and tobacco were captured on the
+                  Household step and are not asked again here. */}
               {draft.people.map((person) => (
                 <PersonEditor
                   key={person.key}
@@ -629,6 +610,7 @@ function Capture() {
                   effectiveDate={draft.requestedEffective}
                   onChange={(p) => patchPerson(person.key, p)}
                   showSsn
+                  ssnOnly
                   ssnHeld={heldSsnKeys.includes(person.key)}
                 />
               ))}
@@ -655,7 +637,7 @@ function Capture() {
               one from (1) and the client types it again. */}
           <Card>
             <CardHeader
-              title="Contact, household and income"
+              title="Contact, income and eligibility"
               hint="What HealthSherpa pre-fills, plus what the office needs to find and reach the client."
             />
             <div className="space-y-3 px-4 pb-4">
@@ -692,35 +674,9 @@ function Capture() {
                 </Field>
               </div>
 
-              <SubHead>Household and income</SubHead>
-              {/* Pre-filled from the people on the form rather than left blank —
-                  the agent was typing the same number twice. Still editable: a
-                  TAX household can include someone not applying, or exclude a
-                  member who files separately. */}
-              <Field
-                label="Household size"
-                hint="Everyone on the tax return, not just those applying."
-              >
-                <TextInput
-                  value={draft.householdSize ?? effectiveHouseholdSize(draft)}
-                  onChange={(e) =>
-                    patch({ householdSize: e.target.value === "" ? null : Number(e.target.value) })
-                  }
-                  inputMode="numeric"
-                />
-              </Field>
-              <Field
-                label="Annual household income"
-                hint="A wrong digit here is the difference between an enrollment that processes and one that bounces."
-              >
-                <TextInput
-                  value={draft.householdIncome ?? ""}
-                  onChange={(e) =>
-                    patch({ householdIncome: e.target.value === "" ? null : Number(e.target.value) })
-                  }
-                  inputMode="numeric"
-                />
-              </Field>
+              <SubHead>Income detail</SubHead>
+              {/* The household total and size are on the Household step — they
+                  drive the quote. This is the breakdown behind that total. */}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Employment income">
                   <TextInput
@@ -862,7 +818,7 @@ function Capture() {
       ) : null}
 
       {/* ── Step 1: Address and contact ────────────────────────────────── */}
-      {step === 1 ? (
+      {step === 3 ? (
         <Card>
           <CardHeader title="Home address" hint="Where they actually live, as the exchange has it." />
           <div className="space-y-3 px-4 pb-4">
@@ -951,7 +907,7 @@ function Capture() {
       ) : null}
 
       {/* ── Step 2: Household and tax ──────────────────────────────────── */}
-      {step === 2 ? (
+      {step === 4 ? (
         <Card>
           <CardHeader title="Tax household" hint="Filing intent drives eligibility for the credit." />
           <div className="space-y-4 px-4 pb-4">
@@ -1017,7 +973,7 @@ function Capture() {
       ) : null}
 
       {/* ── Step 3, continued: eligibility ─────────────────────────────── */}
-      {step === 2 ? (
+      {step === 4 ? (
         <Card>
           <CardHeader
             title="Eligibility questions"
@@ -1068,7 +1024,7 @@ function Capture() {
 
       {/* ── Step 3: Income ─────────────────────────────────────────────── */}
       {/* ── Step 3: Existing coverage and SEP ──────────────────────────── */}
-      {step === 3 ? (
+      {step === 5 ? (
         <Card>
           <CardHeader
             title="Existing coverage and enrollment event"
@@ -1166,7 +1122,7 @@ function Capture() {
       ) : null}
 
       {/* ── Step 5: Review and submit ──────────────────────────────────── */}
-      {step === 4 ? (
+      {step === 6 ? (
         <div className="space-y-4">
           <LicenseCapture
             document={draft.photoId}
@@ -1218,6 +1174,12 @@ function Capture() {
           {blocker}
         </p>
       ) : null}
+      {step === 0 && quoteError ? (
+        <p className="mx-4 flex items-start gap-2 rounded-xl bg-error/5 px-3 py-2.5 text-[13px] text-error ring-1 ring-error/15">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden />
+          {quoteError}
+        </p>
+      ) : null}
 
       <div className="sticky bottom-0 flex gap-2 border-t border-line bg-cream/95 px-4 pt-3 pb-3 backdrop-blur">
         <Button
@@ -1232,13 +1194,27 @@ function Capture() {
             ever render disabled — and a dead primary button sitting beside
             "Submit to the office" reads as a requirement the agent has not
             met yet. Submit is the forward action there. */}
-        {onReview ? null : (
+        {onReview ? null : step === 0 ? (
+          /* Runs the quote, then advances. Always re-runs: the inputs may have
+             changed since the last list, and a stale list quoted on the wrong
+             income looks completely plausible. */
+          <Button
+            onClick={async () => {
+              if (await runQuote()) setStep(1);
+            }}
+            disabled={blocker !== null || quoting}
+            className="!w-auto flex-[2]"
+          >
+            <Search size={17} aria-hidden />
+            {quoting ? "Quoting…" : "See plans"}
+          </Button>
+        ) : (
           <Button
             onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
             disabled={blocker !== null}
             className="!w-auto flex-[2]"
           >
-            {step === 0 && HS_HANDOFF_ENABLED ? "Continue on this form" : "Next"}{" "}
+            {step === ESSENTIALS && HS_HANDOFF_ENABLED ? "Continue on this form" : "Next"}{" "}
             <ChevronRight size={17} aria-hidden />
           </Button>
         )}

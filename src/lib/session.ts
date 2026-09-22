@@ -72,7 +72,7 @@ export async function requireAgent(nextPath?: string): Promise<AgentIdentity> {
   const agent = await currentAgentOrNull();
   if (agent) return agent;
 
-  const target = nextPath && nextPath.startsWith("/") ? nextPath : "/quote";
+  const target = nextPath && nextPath.startsWith("/") ? nextPath : "/enroll";
   redirect(`/login?next=${encodeURIComponent(target)}`);
 }
 

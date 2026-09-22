@@ -13,7 +13,7 @@
  * quietly loses a case the other still handles.
  */
 
-export const DEFAULT_NEXT = "/quote";
+export const DEFAULT_NEXT = "/enroll";
 
 /** Control characters, including the newlines used to smuggle a header. */
 const CONTROL = /[\u0000-\u001f\u007f]/;

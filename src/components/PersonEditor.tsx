@@ -29,6 +29,7 @@ export default function PersonEditor({
   onRemove,
   showSsn,
   ssnHeld = false,
+  ssnOnly = false,
 }: {
   person: Person;
   effectiveDate: string;
@@ -37,8 +38,44 @@ export default function PersonEditor({
   showSsn?: boolean;
   /** This person's SSN is held on the server from a resumed draft. */
   ssnHeld?: boolean;
+  /**
+   * Render only the header and the SSN. Essentials uses this: the person's
+   * names, DoB, sex and tobacco were captured on the Household step, and
+   * showing those inputs a second time is what the old Quote/Application
+   * split used to do.
+   */
+  ssnOnly?: boolean;
 }) {
   const age = ageAt(person.dateOfBirth, effectiveDate);
+  const name = [person.firstName, person.lastName].filter(Boolean).join(" ");
+
+  if (ssnOnly) {
+    if (!person.seekingCoverage) return null;
+    return (
+      <div className="border-t border-line px-4 py-4 first:border-t-0">
+        <div className="mb-3 flex items-center gap-2">
+          <Badge tone={person.relation === "primary" ? "gold" : "neutral"}>
+            {RELATION_LABEL[person.relation]}
+          </Badge>
+          <span className="truncate text-[13px] font-medium text-navy-900">
+            {name || "Name not entered yet"}
+          </span>
+        </div>
+        <SsnInput
+          label="SSN"
+          value={person.ssn}
+          confirmValue={person.ssnConfirm}
+          noSsn={person.noSsn}
+          held={ssnHeld}
+          onChange={(ssn) => onChange({ ssn })}
+          onConfirmChange={(ssnConfirm) => onChange({ ssnConfirm })}
+          onNoSsnChange={(noSsn) =>
+            onChange(noSsn ? { noSsn, ssn: "", ssnConfirm: "" } : { noSsn })
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="border-t border-line px-4 py-4 first:border-t-0">
