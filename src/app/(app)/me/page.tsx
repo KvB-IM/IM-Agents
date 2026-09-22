@@ -53,7 +53,7 @@ export default async function MePage({
     {
       label: "Not staged yet",
       value: k.unstaged,
-      sub: "office has not picked up",
+      sub: "older forms, not yet staged",
       Icon: Inbox,
       hot: false,
     },
@@ -149,12 +149,13 @@ export default async function MePage({
         <ul className="space-y-2.5 px-4 pb-4 text-[12px] leading-relaxed text-muted">
           <li>
             Everything here comes from the form&apos;s{" "}
-            <strong className="font-semibold text-navy-800">enrollment stage</strong>, which the
-            office sets. This app never guesses it.
+            <strong className="font-semibold text-navy-800">enrollment stage</strong>. Forms
+            filed here start at <strong className="font-semibold text-navy-800">Ready to enroll</strong>;
+            every stage after that is set by the office.
           </li>
           <li>
-            <strong className="font-semibold text-navy-800">Not staged yet</strong> is normal for
-            anything recent — it means submitted and not yet picked up, not lost.
+            <strong className="font-semibold text-navy-800">Not staged yet</strong> only applies to
+            older forms that came in before stages existed — it means not picked up, not lost.
           </li>
           <li>
             <strong className="font-semibold text-navy-800">Enrolled %</strong> is measured against

@@ -195,6 +195,21 @@ export const FORM_TYPE: Choice[] = [
   { value: FORM_TYPE_HEALTHSHERPA, label: "Enrolled in the field" },
 ];
 
+/* ── Enrollment stage ───────────────────────────────────────────────────────
+ * The office's pipeline field, and the one every KPI reads. The portal stamps
+ * exactly one value on create — "Ready to Enroll", verified verbatim against
+ * live JOTS metadata — so a filed form lands in the enrollers' queue instead
+ * of sitting unstaged until a CSR notices it. Every later stage is the
+ * office's to set; this list is an outbound allowlist of what WE may write.
+ *
+ * ⚠️ A workflow on JOTS (jot_create_client_and_policy) fires on any change to
+ * this field. Its trigger must ignore "Ready to Enroll", or every portal
+ * submission would run it on create. */
+export const ENROLLMENT_STAGE_ON_CREATE = "Ready to Enroll";
+export const ENROLLMENT_STAGE: Choice[] = [
+  { value: ENROLLMENT_STAGE_ON_CREATE, label: "Ready to enroll" },
+];
+
 /* ── Dependents subform ─────────────────────────────────────────────────────
  * Verified against the Jot_Dependents subform's own field metadata. */
 

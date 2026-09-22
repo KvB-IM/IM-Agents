@@ -84,7 +84,9 @@ export async function createJot(
     // matters because the UI has to read correctly on a form that has just
     // been filed, which is exactly when an agent looks at it.
     status: "",
-    enrollmentStage: "",
+    // Except the stage: the portal now stamps "Ready to Enroll" on create
+    // (lib/jot.ts), so the fixture reads back whatever was sent.
+    enrollmentStage: str("Enrollment_Stage"),
     classification: "",
     requirementStage: "",
     requirementDue: "",

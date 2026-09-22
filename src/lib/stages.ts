@@ -67,14 +67,14 @@ export const STAGES: StageMeta[] = [
   {
     key: UNSTAGED,
     label: "Not staged yet",
-    meaning: "Submitted. The office has not picked it up yet.",
+    meaning: "An older form the office has not staged. Portal forms arrive staged.",
     tone: "unknown",
     funnel: false,
   },
   {
     key: READY,
     label: "Ready to enroll",
-    meaning: "Validated and queued. Nothing needed from you.",
+    meaning: "Queued for an enroller. Nothing needed from you.",
     tone: "waiting",
     funnel: true,
   },

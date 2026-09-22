@@ -167,6 +167,10 @@ export const CAPTURE_WRITABLE = {
    * representation and AOR, not origin. Agent-portal origin is already legible
    * from the `AP-` prefix on `Name`. */
   Form_Type: "picklist",
+  /* Stamped "Ready to Enroll" on create, both paths, so a new form lands in
+   * the enrollers' queue. The ONLY stage this app writes — every transition
+   * after it belongs to the office. Pinned in lib/picklists.ts. */
+  Enrollment_Stage: "picklist",
 } as const;
 
 /**
@@ -350,6 +354,7 @@ export function draftToJot(
      * this record is identical: a HealthSherpa submission is a COMPLETE Jot,
      * not a stub, because a customer-service rep reading it is the reason it
      * exists. See the EnrollmentPath doc in lib/types.ts. */
+    Enrollment_Stage: PL.pinned(PL.ENROLLMENT_STAGE, PL.ENROLLMENT_STAGE_ON_CREATE),
     Form_Type: PL.pinned(
       PL.FORM_TYPE,
       path === "healthsherpa" ? PL.FORM_TYPE_HEALTHSHERPA : PL.FORM_TYPE_OFFICE,

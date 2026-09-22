@@ -101,3 +101,11 @@ test("the 60-day window is advisory and only for events that have one", () => {
   assert.equal(outsideSixtyDayWindow("not an event", old), false);
   assert.equal(outsideSixtyDayWindow("Got married", ""), false);
 });
+
+test("new forms are staged Ready to Enroll, verbatim from Zoho", () => {
+  // A near-miss ("Ready To Enroll", "Ready to enroll") would be silently
+  // dropped by Zoho and the form would land unstaged.
+  assert.equal(PL.ENROLLMENT_STAGE_ON_CREATE, "Ready to Enroll");
+  assert.equal(PL.pinned(PL.ENROLLMENT_STAGE, "Ready to Enroll"), "Ready to Enroll");
+  assert.equal(PL.pinned(PL.ENROLLMENT_STAGE, "Enrolled"), "", "the app may only write the create stage");
+});
